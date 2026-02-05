@@ -1,0 +1,85 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "ormkit"
+version = "0.1.0"
+description = "A blazingly fast Python ORM powered by Rust"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Framework :: AsyncIO",
+    "Topic :: Database",
+    "Typing :: Typed",
+]
+keywords = ["orm", "database", "async", "postgresql", "sqlite", "rust"]
+
+[project.scripts]
+ormkit = "ormkit.cli:main"
+
+[tool.maturin]
+python-source = "python"
+module-name = "ormkit._ormkit"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.pyright]
+include = ["python/ormkit", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "ANN", "B", "C4", "SIM"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-benchmark>=5.0",
+    "pyright>=1.1",
+    "ruff>=0.8",
+    "maturin>=1.7",
+]
+bench = [
+    "rich>=13.0",
+    "aiosqlite>=0.20",
+    "asyncpg>=0.30",
+    "tortoise-orm>=0.22",
+    "sqlalchemy[asyncio]>=2.0",
+    "piccolo>=1.0",
+    "databases[asyncpg]>=0.9",
+    "ormar>=0.20",
+    "psycopg[binary]>=3.2",
+    "orjson>=3.10",
+    "ujson>=5.10",
+]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocs-minify-plugin>=0.8",
+    "pymdown-extensions>=10.0",
+]
+
+[tool.uv]
+# Rebuild when Rust sources change
+cache-keys = [
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "src/**/*.rs" },
+]

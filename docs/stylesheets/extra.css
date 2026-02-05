@@ -1,0 +1,174 @@
+/* Custom styles for ForeignKey docs */
+
+:root {
+  --md-primary-fg-color: #7c3aed;
+  --md-primary-fg-color--light: #8b5cf6;
+  --md-primary-fg-color--dark: #6d28d9;
+  --md-accent-fg-color: #f59e0b;
+}
+
+/* Hero section styling */
+.md-typeset .hero {
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.md-typeset .hero h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, #7c3aed 0%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.md-typeset .hero p {
+  font-size: 1.25rem;
+  color: var(--md-default-fg-color--light);
+  max-width: 600px;
+  margin: 0 auto 2rem;
+}
+
+/* Feature grid */
+.md-typeset .feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.md-typeset .feature-card {
+  padding: 1.5rem;
+  border-radius: 8px;
+  background: var(--md-code-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.md-typeset .feature-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.md-typeset .feature-card h3 {
+  margin-top: 0;
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset .feature-card p {
+  margin-bottom: 0;
+  color: var(--md-default-fg-color--light);
+}
+
+/* Benchmark table styling */
+.md-typeset .benchmark-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+}
+
+.md-typeset .benchmark-table th {
+  background: var(--md-primary-fg-color);
+  color: white;
+  padding: 0.75rem 1rem;
+  text-align: left;
+}
+
+.md-typeset .benchmark-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset .benchmark-table tr:hover {
+  background: var(--md-code-bg-color);
+}
+
+.md-typeset .benchmark-winner {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.md-typeset .benchmark-bar {
+  height: 8px;
+  background: linear-gradient(90deg, #22c55e, #7c3aed);
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* Code block improvements */
+.md-typeset pre > code {
+  font-size: 0.85rem;
+}
+
+/* Badge styling */
+.md-typeset .badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.md-typeset .badge-rust {
+  background: #dea584;
+  color: #000;
+}
+
+.md-typeset .badge-python {
+  background: #3776ab;
+  color: #fff;
+}
+
+.md-typeset .badge-new {
+  background: #22c55e;
+  color: #fff;
+}
+
+/* Button styling */
+.md-typeset .button-group {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 2rem 0;
+}
+
+.md-typeset .md-button {
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+}
+
+.md-typeset .md-button--primary {
+  background: var(--md-primary-fg-color);
+  border-color: var(--md-primary-fg-color);
+}
+
+/* Installation tabs */
+.md-typeset .tabbed-set {
+  margin: 1.5rem 0;
+}
+
+/* Admonition improvements */
+.md-typeset .admonition.tip {
+  border-color: #22c55e;
+}
+
+.md-typeset .admonition.tip > .admonition-title {
+  background-color: rgba(34, 197, 94, 0.1);
+}
+
+.md-typeset .admonition.performance {
+  border-color: #f59e0b;
+}
+
+.md-typeset .admonition.performance > .admonition-title {
+  background-color: rgba(245, 158, 11, 0.1);
+}
+
+.md-typeset .admonition.performance > .admonition-title::before {
+  content: "";
+  mask-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>');
+  -webkit-mask-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>');
+}

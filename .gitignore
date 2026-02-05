@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+wheels/
+.eggs/
+.venv/
+
+# Rust
+target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.benchmarks/
+
+# Build artifacts (compiled extensions)
+*.so
+*.dylib
+*.dll
+*.pyd
+
+# MkDocs build output
+site/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Claude artifacts
+.claude/
