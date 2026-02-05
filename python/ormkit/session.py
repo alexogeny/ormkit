@@ -674,11 +674,18 @@ class AsyncSession:
                 continue
             insert_cols.append(col_name)
 
-        # Build values dict
+        # Build values dict - get instance attributes, skipping ColumnInfo class attrs
+        from ormkit.fields import ColumnInfo
+
         values: dict[str, Any] = {}
         for col in insert_cols:
-            if hasattr(instance, col):
-                values[col] = getattr(instance, col)
+            try:
+                val = object.__getattribute__(instance, col)
+                # Skip if it's still the ColumnInfo class attribute
+                if not isinstance(val, ColumnInfo):
+                    values[col] = val
+            except AttributeError:
+                pass
 
         # Determine update columns
         if do_nothing:
@@ -716,20 +723,46 @@ class AsyncSession:
 
         # Add RETURNING for PostgreSQL
         if pk_col and self._dialect == "postgresql":
-            sql += f" RETURNING {pk_col}"
+            sql += f" RETURNING *"
             result = await self._pool.execute(sql, params)
             row = result.first()
             if row:
-                setattr(instance, pk_col, row[pk_col])
+                # Update all columns from the returned row
+                for col in cls.__columns__:
+                    if col in row:
+                        setattr(instance, col, row[col])
         else:
             await self._pool.execute_statement_py(sql, params)
-            # For SQLite, get last insert ID if needed
+            # For SQLite, we need to query back the row to get all values
+            # This handles both insert (new ID) and update (existing ID) cases
             if pk_col and not do_nothing:
-                # Note: This may not be accurate for updates, but works for inserts
-                result = await self._pool.execute("SELECT last_insert_rowid() as id", [])
-                row = result.first()
-                if row and getattr(instance, pk_col, None) is None:
-                    setattr(instance, pk_col, row["id"])
+                # Query by conflict target to get the actual row
+                conflict_cols = [conflict_target] if isinstance(conflict_target, str) else conflict_target
+                where_parts = []
+                query_params = []
+                for col in conflict_cols:
+                    if col in values:
+                        where_parts.append(f"{col} = ?")
+                        query_params.append(values[col])
+
+                if where_parts:
+                    query_sql = f"SELECT * FROM {table} WHERE {' AND '.join(where_parts)}"
+                    result = await self._pool.execute(query_sql, query_params)
+                    row = result.first()
+                    if row:
+                        # Update all columns from the returned row
+                        for col in cls.__columns__:
+                            if col in row:
+                                setattr(instance, col, row[col])
+
+        # Update identity map - this ensures session.get() returns
+        # the upserted instance (not a stale cached one)
+        if pk_col:
+            pk_value = getattr(instance, pk_col, None)
+            # Check that pk_value is not a ColumnInfo (can happen with do_nothing when
+            # the record was not inserted due to conflict)
+            if pk_value is not None and not isinstance(pk_value, ColumnInfo):
+                self._identity_map[(cls, pk_value)] = instance
 
         return instance
 

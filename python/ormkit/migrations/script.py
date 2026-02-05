@@ -151,16 +151,19 @@ class MigrationScript:
         )
 
         # Compile the module to get upgrade/downgrade functions
-        # We need to provide a mock 'alembic' module since migrations import from it
+        # We need to provide mock 'alembic' and 'sqlalchemy' modules since migrations import them
         try:
             code = compile(source, str(path), "exec")
 
-            # Create a mock alembic module and inject it into sys.modules
-            # This allows `from alembic import op` to work
+            # Create mock modules and inject them into sys.modules
+            # This allows `from alembic import op` and `import sqlalchemy as sa` to work
             import sys
             mock_alembic = _create_mock_alembic_module()
+            mock_sqlalchemy = _create_mock_sqlalchemy_module()
             old_alembic = sys.modules.get("alembic")
+            old_sqlalchemy = sys.modules.get("sqlalchemy")
             sys.modules["alembic"] = mock_alembic  # type: ignore[assignment]
+            sys.modules["sqlalchemy"] = mock_sqlalchemy  # type: ignore[assignment]
 
             try:
                 module_dict: dict[str, Any] = {}
@@ -171,14 +174,19 @@ class MigrationScript:
                 if "downgrade" in module_dict:
                     script._downgrade_fn = module_dict["downgrade"]
             finally:
-                # Restore original alembic module if it existed
+                # Restore original modules if they existed
                 if old_alembic is not None:
                     sys.modules["alembic"] = old_alembic
                 elif "alembic" in sys.modules:
                     del sys.modules["alembic"]
-        except Exception:
+                if old_sqlalchemy is not None:
+                    sys.modules["sqlalchemy"] = old_sqlalchemy
+                elif "sqlalchemy" in sys.modules:
+                    del sys.modules["sqlalchemy"]
+        except Exception as e:
             # Log but don't fail - we might just be reading metadata
-            pass
+            import warnings
+            warnings.warn(f"Failed to load migration functions from {path}: {e}")
 
         return script
 
@@ -467,6 +475,94 @@ class _MockAlembicModule:
     op = _AlembicOpProxy()
 
 
+class _MockSaColumn:
+    """Mock SQLAlchemy Column class for Alembic compatibility."""
+
+    def __init__(
+        self,
+        name: str | None = None,
+        type_: Any = None,
+        *args: Any,
+        primary_key: bool = False,
+        nullable: bool = True,
+        unique: bool = False,
+        index: bool = False,
+        **kwargs: Any
+    ) -> None:
+        self.name = name
+        self.type = type_
+        self.primary_key = primary_key
+        self.nullable = nullable
+        self.unique = unique
+        self.index = index
+
+
+class _MockSaType:
+    """Mock SQLAlchemy type classes."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._args = args
+        self._kwargs = kwargs
+
+    def __str__(self) -> str:
+        return self.__class__.__name__
+
+
+class _MockInteger(_MockSaType):
+    def __str__(self) -> str:
+        return "INTEGER"
+
+
+class _MockString(_MockSaType):
+    def __init__(self, length: int | None = None, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.length = length
+
+    def __str__(self) -> str:
+        if self.length:
+            return f"VARCHAR({self.length})"
+        return "TEXT"
+
+
+class _MockText(_MockSaType):
+    def __str__(self) -> str:
+        return "TEXT"
+
+
+class _MockBoolean(_MockSaType):
+    def __str__(self) -> str:
+        return "BOOLEAN"
+
+
+class _MockDateTime(_MockSaType):
+    def __str__(self) -> str:
+        return "TIMESTAMP"
+
+
+class _MockUniqueConstraint:
+    """Mock SQLAlchemy UniqueConstraint."""
+
+    def __init__(self, *columns: str, **kwargs: Any) -> None:
+        self.columns = columns
+
+
+class _MockSqlalchemyModule:
+    """Mock sqlalchemy module for Alembic compatibility."""
+
+    Column = _MockSaColumn
+    Integer = _MockInteger
+    String = _MockString
+    Text = _MockText
+    Boolean = _MockBoolean
+    DateTime = _MockDateTime
+    UniqueConstraint = _MockUniqueConstraint
+
+
 def _create_mock_alembic_module() -> _MockAlembicModule:
     """Create a mock alembic module for executing migrations."""
     return _MockAlembicModule()
+
+
+def _create_mock_sqlalchemy_module() -> _MockSqlalchemyModule:
+    """Create a mock sqlalchemy module for executing migrations."""
+    return _MockSqlalchemyModule()

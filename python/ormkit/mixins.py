@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any, ClassVar
 if TYPE_CHECKING:
     from ormkit.fields import Mapped
 
+# Import ColumnInfo at module level so we can use it for mixin columns
+from ormkit.fields import ColumnInfo
+
 
 class SoftDeleteMixin:
     """Mixin that adds soft delete functionality to models.
@@ -53,42 +56,31 @@ class SoftDeleteMixin:
     # Class variable to track if model uses soft delete
     __soft_delete__: ClassVar[bool] = True
 
-    # The deleted_at column - will be picked up by ModelMeta
-    # We use ClassVar annotation here but the actual column is defined
-    # in __init_subclass__ to properly integrate with the ORM
-    deleted_at: Mapped[datetime | None]
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Set up soft delete column when class is created."""
-        super().__init_subclass__(**kwargs)
-
-        # Import here to avoid circular imports
-        from ormkit.fields import ColumnInfo
-
-        # Add deleted_at column if not already present
-        if not hasattr(cls, "__annotations__"):
-            cls.__annotations__ = {}
-
-        # Add the type annotation for deleted_at
-        cls.__annotations__["deleted_at"] = "Mapped[datetime | None]"
-
-        # Create the column info for deleted_at
-        # This will be processed by ModelMeta
-        if not hasattr(cls, "deleted_at") or not isinstance(
-            getattr(cls, "deleted_at", None), ColumnInfo
-        ):
-            cls.deleted_at = ColumnInfo(  # type: ignore[assignment]
-                name="deleted_at",
-                python_type=datetime,
-                nullable=True,
-                default=None,
-                index=True,  # Index for efficient filtering
-            )
+    # The deleted_at column - defined directly as a ColumnInfo
+    # so ModelMeta can pick it up when processing subclasses
+    deleted_at: Mapped[datetime | None] = ColumnInfo(  # type: ignore[assignment]
+        name="deleted_at",
+        python_type=datetime,
+        nullable=True,
+        default=None,
+        index=True,  # Index for efficient filtering
+    )
 
     @property
     def is_deleted(self) -> bool:
         """Check if this instance is soft-deleted."""
-        return getattr(self, "deleted_at", None) is not None
+        from ormkit.fields import ColumnInfo
+
+        # Get the deleted_at value, handling the case where it's still a ColumnInfo
+        # (class attribute) rather than an instance value
+        try:
+            val = object.__getattribute__(self, "deleted_at")
+            # If it's a ColumnInfo, treat as not deleted (no instance value set)
+            if isinstance(val, ColumnInfo):
+                return False
+            return val is not None
+        except AttributeError:
+            return False
 
     def mark_deleted(self) -> None:
         """Mark this instance as deleted (sets deleted_at to now)."""

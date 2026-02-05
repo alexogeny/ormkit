@@ -220,15 +220,21 @@ class TestSoftDeleteOperations:
 
     async def test_soft_delete_timestamp_is_current(self, articles_table) -> None:
         """soft_delete() sets deleted_at to current time."""
+        from datetime import UTC
+
         session = AsyncSession(articles_table)
         article = await session.insert(Article(title="Test"))
 
-        before = datetime.utcnow()
+        before = datetime.now(UTC)
         await session.soft_delete(article)
-        after = datetime.utcnow()
+        after = datetime.now(UTC)
 
         assert article.deleted_at is not None
-        assert before <= article.deleted_at <= after
+        # Make both timezone-aware for comparison
+        deleted_at = article.deleted_at
+        if deleted_at.tzinfo is None:
+            deleted_at = deleted_at.replace(tzinfo=UTC)
+        assert before <= deleted_at <= after
 
     async def test_restore_clears_deleted_at(self, articles_table) -> None:
         """restore() clears deleted_at timestamp."""

@@ -59,14 +59,14 @@ class ModelMeta(type):
         except Exception:
             hints = {}
 
-        # Process annotations and collect column info
+        # Import here to avoid circular imports
+        from ormkit.fields import ColumnInfo, Mapped
+        from ormkit.relationships import RelationshipInfo
+
+        # Process annotations and collect column info from class namespace
         for attr_name, attr_value in namespace.items():
             if attr_name.startswith("_"):
                 continue
-
-            # Import here to avoid circular imports
-            from ormkit.fields import ColumnInfo
-            from ormkit.relationships import RelationshipInfo
 
             if isinstance(attr_value, ColumnInfo):
                 attr_value.name = attr_name
@@ -84,6 +84,60 @@ class ModelMeta(type):
                 # Remove from namespace so __getattr__ can handle it
                 # We'll store it in __relationships__ instead
                 delattr(cls, attr_name)
+
+        # Check for ColumnInfo from parent classes/mixins FIRST (like SoftDeleteMixin)
+        # This must happen BEFORE auto-generating from type annotations, because
+        # get_type_hints() includes inherited annotations too
+        for base in bases:
+            for attr_name in dir(base):
+                if attr_name.startswith("_") or attr_name in columns:
+                    continue
+                attr_value = getattr(base, attr_name, None)
+                if isinstance(attr_value, ColumnInfo):
+                    # Clone the ColumnInfo to avoid sharing between classes
+                    col_copy = ColumnInfo(
+                        name=attr_name,
+                        python_type=attr_value.python_type,
+                        primary_key=attr_value.primary_key,
+                        nullable=attr_value.nullable,
+                        unique=attr_value.unique,
+                        index=attr_value.index,
+                        default=attr_value.default,
+                        server_default=attr_value.server_default,
+                        max_length=attr_value.max_length,
+                        foreign_key=attr_value.foreign_key,
+                        autoincrement=attr_value.autoincrement,
+                        is_json=attr_value.is_json,
+                    )
+                    columns[attr_name] = col_copy
+
+        # Also process type annotations that are Mapped but have no mapped_column() value
+        # These auto-generate a ColumnInfo based on the type
+        # This runs AFTER parent class check so mixin columns are not overwritten
+        for attr_name, hint in hints.items():
+            if attr_name.startswith("_") or attr_name in columns or attr_name in relationships:
+                continue
+            # Check if this is a Mapped annotation
+            hint_str = str(hint)
+            if "Mapped[" in hint_str or "Mapped" in str(typing.get_origin(hint) or ""):
+                # Extract the Python type from Mapped[T]
+                python_type = _extract_mapped_type(hint)
+                if python_type is not None:
+                    # Check if the class attribute exists and isn't a ColumnInfo or RelationshipInfo
+                    attr_val = namespace.get(attr_name)
+                    if attr_val is None or not isinstance(attr_val, (ColumnInfo, RelationshipInfo)):
+                        # Check if it's Optional (nullable)
+                        is_nullable = "None" in hint_str or typing.get_origin(python_type) is typing.Union
+                        # Auto-create ColumnInfo
+                        col = ColumnInfo(
+                            name=attr_name,
+                            python_type=python_type if not is_nullable else (
+                                typing.get_args(python_type)[0] if typing.get_args(python_type) else python_type
+                            ),
+                            nullable=is_nullable,
+                            is_json=(python_type is dict or python_type is list),
+                        )
+                        columns[attr_name] = col
 
         cls.__columns__ = columns  # type: ignore[attr-defined]
         cls.__relationships__ = relationships  # type: ignore[attr-defined]
@@ -166,6 +220,8 @@ class Base(metaclass=ModelMeta):
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize a model instance with the given column values."""
+        from ormkit.fields import ColumnInfo
+
         # Initialize relationship storage
         object.__setattr__(self, "_loaded_relationships", {})
         object.__setattr__(self, "_session", None)
@@ -177,8 +233,16 @@ class Base(metaclass=ModelMeta):
                 raise TypeError(f"Unknown column or relationship: {key}")
 
         # Set defaults for missing columns
+        # We need to check if the attribute was actually set (not just inherited ColumnInfo)
         for col_name, col_info in self.__columns__.items():
-            if not hasattr(self, col_name):
+            # Check if this is an instance attribute (not just class-level ColumnInfo)
+            try:
+                val = object.__getattribute__(self, col_name)
+                # If we got here and it's a ColumnInfo, it's the class attribute
+                if isinstance(val, ColumnInfo):
+                    raise AttributeError("Class attribute")
+            except AttributeError:
+                # Attribute not set on instance - set default
                 if col_info.default is not None:
                     if callable(col_info.default):
                         setattr(self, col_name, col_info.default())
@@ -186,6 +250,8 @@ class Base(metaclass=ModelMeta):
                         setattr(self, col_name, col_info.default)
                 elif col_info.nullable:
                     setattr(self, col_name, None)
+                # For non-nullable columns without defaults (like autoincrement PKs),
+                # we don't set anything - they'll be filled by the database
 
     def __repr__(self) -> str:
         pk = self.__primary_key__

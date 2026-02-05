@@ -189,6 +189,10 @@ def relationship(
         >>> class Post(Base):
         ...     author: Mapped[User] = relationship(back_populates="posts")
     """
+    # M2M relationships are always collections on both sides
+    if secondary is not None and uselist is None:
+        uselist = True
+
     return RelationshipInfo(
         back_populates=back_populates,
         foreign_keys=foreign_keys,
