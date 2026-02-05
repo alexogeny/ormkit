@@ -99,8 +99,6 @@ class MigrationScript:
         depends_on = None
         message = ""
         create_date = None
-        upgrade_fn = None
-        downgrade_fn = None
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):

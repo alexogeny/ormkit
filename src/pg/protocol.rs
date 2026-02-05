@@ -410,15 +410,29 @@ pub enum BackendMessage {
     // Authentication
     AuthenticationOk,
     AuthenticationCleartextPassword,
-    AuthenticationMD5Password { salt: [u8; 4] },
-    AuthenticationSASL { mechanisms: Vec<String> },
-    AuthenticationSASLContinue { data: Bytes },
-    AuthenticationSASLFinal { data: Bytes },
+    AuthenticationMD5Password {
+        salt: [u8; 4],
+    },
+    AuthenticationSASL {
+        mechanisms: Vec<String>,
+    },
+    AuthenticationSASLContinue {
+        data: Bytes,
+    },
+    AuthenticationSASLFinal {
+        data: Bytes,
+    },
 
     // Query responses
-    RowDescription { fields: Vec<FieldDescription> },
-    DataRow { values: Vec<Option<Bytes>> },
-    CommandComplete { tag: String },
+    RowDescription {
+        fields: Vec<FieldDescription>,
+    },
+    DataRow {
+        values: Vec<Option<Bytes>>,
+    },
+    CommandComplete {
+        tag: String,
+    },
     EmptyQueryResponse,
 
     // Extended query protocol
@@ -429,13 +443,25 @@ pub enum BackendMessage {
     PortalSuspended,
 
     // Status
-    ReadyForQuery { status: TransactionStatus },
-    ParameterStatus { name: String, value: String },
-    BackendKeyData { process_id: i32, secret_key: i32 },
+    ReadyForQuery {
+        status: TransactionStatus,
+    },
+    ParameterStatus {
+        name: String,
+        value: String,
+    },
+    BackendKeyData {
+        process_id: i32,
+        secret_key: i32,
+    },
 
     // Errors and notices
-    ErrorResponse { fields: HashMap<u8, String> },
-    NoticeResponse { fields: HashMap<u8, String> },
+    ErrorResponse {
+        fields: HashMap<u8, String>,
+    },
+    NoticeResponse {
+        fields: HashMap<u8, String>,
+    },
 
     // Other
     NotificationResponse {
@@ -443,7 +469,9 @@ pub enum BackendMessage {
         channel: String,
         payload: String,
     },
-    ParameterDescription { type_oids: Vec<Oid> },
+    ParameterDescription {
+        type_oids: Vec<Oid>,
+    },
 }
 
 impl BackendMessage {

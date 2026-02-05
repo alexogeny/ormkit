@@ -1,17 +1,17 @@
 use pyo3::prelude::*;
 
 mod error;
-mod pool;
 mod executor;
 mod pg;
-mod sqlite;
+mod pool;
 mod schema;
+mod sqlite;
 
 // No more sqlx types module - we use our own drivers
 
-use pool::{ConnectionPool, PoolConfig, Transaction};
 use executor::QueryResult;
-use schema::{ColumnInfo, IndexInfo, ConstraintInfo, TableInfo};
+use pool::{ConnectionPool, PoolConfig, Transaction};
+use schema::{ColumnInfo, ConstraintInfo, IndexInfo, TableInfo};
 
 /// Create a new database connection pool
 #[pyfunction]
@@ -29,7 +29,8 @@ fn create_pool<'py>(
     };
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        let pool = ConnectionPool::connect(config).await
+        let pool = ConnectionPool::connect(config)
+            .await
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(pool)
     })

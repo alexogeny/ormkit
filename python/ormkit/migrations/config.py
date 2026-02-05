@@ -132,10 +132,7 @@ class AlembicConfig:
         Returns:
             AlembicConfig if found, None otherwise
         """
-        if start_path is None:
-            start_path = Path.cwd()
-        else:
-            start_path = Path(start_path)
+        start_path = Path.cwd() if start_path is None else Path(start_path)
 
         current = start_path
         while current != current.parent:

@@ -132,10 +132,13 @@ impl StatementCache {
     /// Insert an Arc-wrapped prepared statement into the cache.
     ///
     /// Use this when you already have an Arc<PreparedStatement>.
-    pub fn insert_arc(&mut self, query: String, statement: Arc<PreparedStatement>) -> Option<String> {
+    pub fn insert_arc(
+        &mut self,
+        query: String,
+        statement: Arc<PreparedStatement>,
+    ) -> Option<String> {
         // Check if we'll evict (at capacity and this is a new key)
-        let will_evict = self.cache.len() >= self.cache.cap().get()
-            && !self.cache.contains(&query);
+        let will_evict = self.cache.len() >= self.cache.cap().get() && !self.cache.contains(&query);
 
         // Get the LRU entry before inserting (will be evicted)
         let evicted = if will_evict {

@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from datetime import UTC
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from ormkit._ormkit import ConnectionPool, QueryResult
 
@@ -78,7 +79,7 @@ class Q:
         if self._children:
             # Complex expression with children
             parts = []
-            for join_type, child in self._children:
+            for _join_type, child in self._children:
                 child_sql, child_params = child.to_sql(dialect, param_offset + len(params))
                 if child_sql:
                     parts.append(child_sql)
@@ -190,7 +191,6 @@ def _build_filter_sql(col: str, op: str, value: Any, dialect: str, param_offset:
     - JSON path access: metadata__key__subkey=value
     - JSON operators: metadata__has_key="key", metadata__json_contains={"key": "value"}
     """
-    params: list[Any] = []
 
     def placeholder(offset: int = 0) -> str:
         return f"${param_offset + offset + 1}" if dialect == "postgresql" else "?"
@@ -225,10 +225,7 @@ def _build_filter_sql(col: str, op: str, value: Any, dialect: str, param_offset:
             return f"json({col}) = json({placeholder()})", [json.dumps(value)]
 
     # If we have a JSON path, modify the column reference
-    if json_path:
-        col_ref = _build_json_path_sql(col, json_path, dialect)
-    else:
-        col_ref = col
+    col_ref = _build_json_path_sql(col, json_path, dialect) if json_path else col
 
     if op == "eq":
         if value is None:
@@ -601,9 +598,9 @@ class AsyncSession:
                 "Add SoftDeleteMixin to enable soft delete."
             )
 
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        deleted_at = datetime.now(timezone.utc)
+        deleted_at = datetime.now(UTC)
         instance.deleted_at = deleted_at  # type: ignore[attr-defined]
         await self.update(instance, deleted_at=deleted_at)
         return instance
@@ -1567,10 +1564,10 @@ class Query[T]:
             if not fk_col or not remote_pk:
                 return
 
-            fk_values = list(set(
+            fk_values = list({
                 getattr(inst, fk_col) for inst in instances
                 if hasattr(inst, fk_col) and getattr(inst, fk_col) is not None
-            ))
+            })
 
             if not fk_values:
                 for instance in instances:
@@ -1702,7 +1699,7 @@ class Query[T]:
             instance._set_relationship(rel_name, related, self._session)
 
 
-class ExecuteResult(Generic[T]):
+class ExecuteResult[T: "Base"]:
     """Result from executing a query statement."""
 
     def __init__(
@@ -1741,7 +1738,7 @@ class ExecuteResult(Generic[T]):
         return self._result.rowcount
 
 
-class ScalarResult(Generic[T]):
+class ScalarResult[T: "Base"]:
     """Result wrapper that converts rows to model instances."""
 
     def __init__(

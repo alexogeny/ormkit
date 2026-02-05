@@ -3,11 +3,11 @@
 //! SQLite is single-writer, so we use a simple pool with one write connection
 //! and multiple read connections for optimal performance.
 
-use std::sync::Arc;
 use parking_lot::Mutex;
-use tokio::sync::{Semaphore, OwnedSemaphorePermit};
+use std::sync::Arc;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use super::connection::{SqliteConnection, QueryResult};
+use super::connection::{QueryResult, SqliteConnection};
 use super::error::{SqliteError, SqliteResult};
 use super::types::SqliteValue;
 

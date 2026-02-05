@@ -12,13 +12,13 @@
 //! - `statement`: Prepared statement cache
 //! - `pool`: Connection pool with per-connection statement cache
 
-pub mod protocol;
-pub mod types;
 pub mod connection;
-pub mod statement;
-pub mod pool;
 pub mod error;
+pub mod pool;
+pub mod protocol;
 pub mod scram;
+pub mod statement;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
@@ -26,9 +26,9 @@ mod tests;
 // Public API re-exports for library consumers
 #[allow(unused_imports)]
 pub use connection::PgConnection;
-pub use pool::{PgPool, PgPoolConfig, PooledConnection};
 #[allow(unused_imports)]
 pub use error::{PgError, PgResult};
+pub use pool::{PgPool, PgPoolConfig, PooledConnection};
 #[allow(unused_imports)]
 pub use statement::{PreparedStatement, SharedColumns};
 #[allow(unused_imports)]

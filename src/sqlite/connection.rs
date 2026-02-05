@@ -56,14 +56,17 @@ impl SqliteConnection {
                     "PRAGMA journal_mode=WAL;
                      PRAGMA synchronous=NORMAL;
                      PRAGMA busy_timeout=5000;
-                     PRAGMA cache_size=-64000;"  // 64MB cache
+                     PRAGMA cache_size=-64000;", // 64MB cache
                 )?;
                 Ok(())
             })
             .await?;
         }
 
-        Ok(Self { conn, closed: false })
+        Ok(Self {
+            conn,
+            closed: false,
+        })
     }
 
     /// Execute a query and return results.
@@ -82,17 +85,12 @@ impl SqliteConnection {
                 let mut stmt = conn.prepare_cached(&sql)?;
 
                 // Get column names
-                let columns: Vec<String> = stmt
-                    .column_names()
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect();
+                let columns: Vec<String> =
+                    stmt.column_names().iter().map(|s| s.to_string()).collect();
 
                 // Bind parameters
-                let params_refs: Vec<&dyn rusqlite::ToSql> = params
-                    .iter()
-                    .map(|p| p as &dyn rusqlite::ToSql)
-                    .collect();
+                let params_refs: Vec<&dyn rusqlite::ToSql> =
+                    params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
                 // Execute and collect rows
                 let mut rows_data = Vec::new();
@@ -128,10 +126,8 @@ impl SqliteConnection {
 
         self.conn
             .call(move |conn| {
-                let params_refs: Vec<&dyn rusqlite::ToSql> = params
-                    .iter()
-                    .map(|p| p as &dyn rusqlite::ToSql)
-                    .collect();
+                let params_refs: Vec<&dyn rusqlite::ToSql> =
+                    params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
                 let rows_affected = conn.execute(&sql, params_refs.as_slice())?;
                 Ok(rows_affected as u64)

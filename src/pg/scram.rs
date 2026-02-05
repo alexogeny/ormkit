@@ -64,8 +64,8 @@ impl ScramClient {
     /// Server message format: `r=<nonce>,s=<salt>,i=<iterations>`
     /// Returns: client-final-message
     pub fn process_server_first(&mut self, server_msg: &[u8]) -> Result<Vec<u8>, ScramError> {
-        let server_str = std::str::from_utf8(server_msg)
-            .map_err(|_| ScramError::InvalidServerMessage)?;
+        let server_str =
+            std::str::from_utf8(server_msg).map_err(|_| ScramError::InvalidServerMessage)?;
 
         // Parse server-first-message
         let mut nonce = None;
@@ -76,11 +76,7 @@ impl ScramClient {
             if let Some(value) = part.strip_prefix("r=") {
                 nonce = Some(value.to_string());
             } else if let Some(value) = part.strip_prefix("s=") {
-                salt = Some(
-                    BASE64
-                        .decode(value)
-                        .map_err(|_| ScramError::InvalidSalt)?,
-                );
+                salt = Some(BASE64.decode(value).map_err(|_| ScramError::InvalidSalt)?);
             } else if let Some(value) = part.strip_prefix("i=") {
                 iterations = Some(
                     value
@@ -107,11 +103,7 @@ impl ScramClient {
         let stored_key = sha256(&client_key);
 
         // Build auth message
-        let client_first_bare = format!(
-            "n={},r={}",
-            sasl_prep(&self.username),
-            self.client_nonce
-        );
+        let client_first_bare = format!("n={},r={}", sasl_prep(&self.username), self.client_nonce);
         let server_first = server_str;
         let client_final_without_proof = format!("c=biws,r={}", combined_nonce);
 
@@ -141,8 +133,8 @@ impl ScramClient {
     ///
     /// Server message format: `v=<verifier>`
     pub fn verify_server_final(&self, server_msg: &[u8]) -> Result<(), ScramError> {
-        let server_str = std::str::from_utf8(server_msg)
-            .map_err(|_| ScramError::InvalidServerMessage)?;
+        let server_str =
+            std::str::from_utf8(server_msg).map_err(|_| ScramError::InvalidServerMessage)?;
 
         let verifier_b64 = server_str
             .strip_prefix("v=")
@@ -270,7 +262,9 @@ mod tests {
         );
 
         // Process server first
-        let final_msg = client.process_server_first(server_first.as_bytes()).unwrap();
+        let final_msg = client
+            .process_server_first(server_first.as_bytes())
+            .unwrap();
         let final_str = String::from_utf8(final_msg).unwrap();
 
         // Client final should have channel binding, nonce, and proof

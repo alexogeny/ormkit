@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tokio::sync::{Semaphore, OwnedSemaphorePermit};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::connection::{PgConfig, PgConnection, QueryResult};
 use super::error::{PgError, PgResult};
@@ -97,7 +97,11 @@ impl PooledConnection {
     /// Execute a parameterized query without syncing (for pipelining).
     ///
     /// Use sync() after all pipelined operations.
-    pub async fn query_no_sync(&mut self, query: &str, params: &[PgValue]) -> PgResult<QueryResult> {
+    pub async fn query_no_sync(
+        &mut self,
+        query: &str,
+        params: &[PgValue],
+    ) -> PgResult<QueryResult> {
         self.conn
             .as_mut()
             .ok_or(PgError::ConnectionClosed)?
@@ -133,7 +137,12 @@ impl PooledConnection {
     }
 
     /// Execute query in transaction, optionally consuming deferred BEGIN.
-    pub async fn query_in_transaction(&mut self, query: &str, params: &[PgValue], consume_begin: bool) -> PgResult<QueryResult> {
+    pub async fn query_in_transaction(
+        &mut self,
+        query: &str,
+        params: &[PgValue],
+        consume_begin: bool,
+    ) -> PgResult<QueryResult> {
         self.conn
             .as_mut()
             .ok_or(PgError::ConnectionClosed)?
@@ -315,9 +324,7 @@ fn parse_rows_affected(tag: &str) -> u64 {
 
     let parts: Vec<&str> = tag.split_whitespace().collect();
     match parts.as_slice() {
-        ["INSERT", _, n] | ["UPDATE", n] | ["DELETE", n] | ["SELECT", n] => {
-            n.parse().unwrap_or(0)
-        }
+        ["INSERT", _, n] | ["UPDATE", n] | ["DELETE", n] | ["SELECT", n] => n.parse().unwrap_or(0),
         _ => 0,
     }
 }

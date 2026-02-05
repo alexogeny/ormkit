@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use pyo3::intern;
+use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 use smallvec::SmallVec;
@@ -103,6 +103,7 @@ impl QueryResult {
 
 /// Convert RowValue to Python object - hyper-optimized version
 #[inline(always)]
+#[allow(deprecated)] // ToPyObject is being replaced, but still works
 fn row_value_to_py(py: Python<'_>, val: &RowValue) -> PyObject {
     match val {
         RowValue::Null => py.None(),
@@ -162,12 +163,12 @@ impl QueryResult {
         }
 
         // Pre-intern column names for faster dict key setting
-        let interned_cols: Vec<Bound<'py, PyString>> = cols.iter()
-            .map(|c| PyString::intern(py, c))
-            .collect();
+        let interned_cols: Vec<Bound<'py, PyString>> =
+            cols.iter().map(|c| PyString::intern(py, c)).collect();
 
         // Build all dicts
-        let dicts: PyResult<Vec<Bound<'py, PyDict>>> = rows.iter()
+        let dicts: PyResult<Vec<Bound<'py, PyDict>>> = rows
+            .iter()
             .map(|row| row_to_dict(py, row, cols, Some(&interned_cols)))
             .collect();
 
@@ -192,9 +193,8 @@ impl QueryResult {
                 self.rows.len()
             )));
         }
-        self.first(py)?.ok_or_else(|| {
-            pyo3::exceptions::PyValueError::new_err("Expected exactly 1 row, got 0")
-        })
+        self.first(py)?
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Expected exactly 1 row, got 0"))
     }
 
     /// Get a single row or None
@@ -254,49 +254,69 @@ impl QueryResult {
     fn tuples<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         let rows = &self.rows;
 
-        let tuples: PyResult<Vec<Bound<'py, PyTuple>>> = rows.iter().map(|row| {
-            let values: Vec<PyObject> = row.values.iter()
-                .map(|v| row_value_to_py(py, v))
-                .collect();
-            PyTuple::new(py, values)
-        }).collect();
+        let tuples: PyResult<Vec<Bound<'py, PyTuple>>> = rows
+            .iter()
+            .map(|row| {
+                let values: Vec<PyObject> =
+                    row.values.iter().map(|v| row_value_to_py(py, v)).collect();
+                PyTuple::new(py, values)
+            })
+            .collect();
 
         PyList::new(py, tuples?)
     }
 
     /// Get a specific column as a list (fast column extraction)
     fn column<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyList>> {
-        let col_idx = self.columns.iter().position(|c| c == name)
-            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(format!("Column '{}' not found", name)))?;
+        let col_idx = self.columns.iter().position(|c| c == name).ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("Column '{}' not found", name))
+        })?;
 
-        let values: Vec<PyObject> = self.rows.iter().map(|row| {
-            row.values.get(col_idx)
-                .map(|v| row_value_to_py(py, v))
-                .unwrap_or_else(|| py.None())
-        }).collect();
+        let values: Vec<PyObject> = self
+            .rows
+            .iter()
+            .map(|row| {
+                row.values
+                    .get(col_idx)
+                    .map(|v| row_value_to_py(py, v))
+                    .unwrap_or_else(|| py.None())
+            })
+            .collect();
 
         PyList::new(py, values)
     }
 
     /// Get multiple columns as a list of tuples (efficient for projections)
-    fn columns_as_tuples<'py>(&self, py: Python<'py>, names: Vec<String>) -> PyResult<Bound<'py, PyList>> {
-        let indices: Vec<usize> = names.iter()
+    fn columns_as_tuples<'py>(
+        &self,
+        py: Python<'py>,
+        names: Vec<String>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let indices: Vec<usize> = names
+            .iter()
             .map(|name| {
-                self.columns.iter().position(|c| c == name)
-                    .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(format!("Column '{}' not found", name)))
+                self.columns.iter().position(|c| c == name).ok_or_else(|| {
+                    pyo3::exceptions::PyKeyError::new_err(format!("Column '{}' not found", name))
+                })
             })
             .collect::<PyResult<Vec<_>>>()?;
 
-        let tuples: PyResult<Vec<Bound<'py, PyTuple>>> = self.rows.iter().map(|row| {
-            let values: Vec<PyObject> = indices.iter()
-                .map(|&idx| {
-                    row.values.get(idx)
-                        .map(|v| row_value_to_py(py, v))
-                        .unwrap_or_else(|| py.None())
-                })
-                .collect();
-            PyTuple::new(py, values)
-        }).collect();
+        let tuples: PyResult<Vec<Bound<'py, PyTuple>>> = self
+            .rows
+            .iter()
+            .map(|row| {
+                let values: Vec<PyObject> = indices
+                    .iter()
+                    .map(|&idx| {
+                        row.values
+                            .get(idx)
+                            .map(|v| row_value_to_py(py, v))
+                            .unwrap_or_else(|| py.None())
+                    })
+                    .collect();
+                PyTuple::new(py, values)
+            })
+            .collect();
 
         PyList::new(py, tuples?)
     }
@@ -304,7 +324,8 @@ impl QueryResult {
     /// Get a scalar value from first row, first column
     #[inline]
     fn scalar<'py>(&self, py: Python<'py>) -> PyObject {
-        self.rows.first()
+        self.rows
+            .first()
             .and_then(|row| row.values.first())
             .map(|val| row_value_to_py(py, val))
             .unwrap_or_else(|| py.None())
@@ -312,18 +333,27 @@ impl QueryResult {
 
     /// Get all values from first column as Python objects
     fn scalars<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
-        let values: Vec<PyObject> = self.rows.iter().map(|row| {
-            row.values.first()
-                .map(|val| row_value_to_py(py, val))
-                .unwrap_or_else(|| py.None())
-        }).collect();
+        let values: Vec<PyObject> = self
+            .rows
+            .iter()
+            .map(|row| {
+                row.values
+                    .first()
+                    .map(|val| row_value_to_py(py, val))
+                    .unwrap_or_else(|| py.None())
+            })
+            .collect();
 
         PyList::new(py, values)
     }
 
     /// Create model instances using Python's _from_row_fast for proper JSON handling.
     /// This delegates to Python for type conversions (JSON deserialization, etc.)
-    fn to_models<'py>(&self, py: Python<'py>, model_class: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyList>> {
+    fn to_models<'py>(
+        &self,
+        py: Python<'py>,
+        model_class: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyList>> {
         let rows = &self.rows;
         let cols = self.columns.as_ref();
 
@@ -335,9 +365,8 @@ impl QueryResult {
         let from_row_fast = model_class.getattr(intern!(py, "_from_row_fast"))?;
 
         // Pre-intern column names for faster dict creation
-        let interned_cols: Vec<Bound<'py, PyString>> = cols.iter()
-            .map(|col| PyString::intern(py, col))
-            .collect();
+        let interned_cols: Vec<Bound<'py, PyString>> =
+            cols.iter().map(|col| PyString::intern(py, col)).collect();
 
         // Pre-allocate the result vector
         let mut instances: Vec<PyObject> = Vec::with_capacity(rows.len());
@@ -362,7 +391,11 @@ impl QueryResult {
     }
 
     /// Create a single model instance from the first row
-    fn to_model<'py>(&self, py: Python<'py>, model_class: &Bound<'py, PyAny>) -> PyResult<Option<PyObject>> {
+    fn to_model<'py>(
+        &self,
+        py: Python<'py>,
+        model_class: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<PyObject>> {
         if self.rows.is_empty() {
             return Ok(None);
         }

@@ -76,7 +76,7 @@ class RelationshipInfo:
     def _extract_target_from_hint(self, hint: Any) -> str | None:
         """Extract target model name from type hint."""
         # Handle Mapped[T] or Mapped[list[T]]
-        origin = typing.get_origin(hint)
+        typing.get_origin(hint)
         args = typing.get_args(hint)
 
         if not args:

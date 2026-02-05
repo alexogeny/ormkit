@@ -9,6 +9,14 @@ description = "A blazingly fast Python ORM powered by Rust"
 name = "_ormkit"
 crate-type = ["cdylib"]
 
+[lints.rust]
+# Allow dead code - we have public API methods not yet used internally
+dead_code = "allow"
+
+[lints.clippy]
+# Allow same postfix on enum variants (e.g., ConnectionError, IoError)
+enum_variant_names = "allow"
+
 [dependencies]
 pyo3 = { version = "0.23", features = ["extension-module"] }
 pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"] }

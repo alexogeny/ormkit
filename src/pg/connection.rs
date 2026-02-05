@@ -196,7 +196,7 @@ impl PgConnection {
             backend_secret_key: 0,
             parameters: HashMap::new(),
             closed: false,
-            read_buffer: BytesMut::with_capacity(32768),  // 32KB buffer for better throughput
+            read_buffer: BytesMut::with_capacity(32768), // 32KB buffer for better throughput
         };
 
         // Perform startup handshake
@@ -513,7 +513,11 @@ impl PgConnection {
     /// Execute a query without syncing (for pipelining within transactions).
     ///
     /// WARNING: Caller must call sync() after all pipelined operations.
-    pub async fn query_no_sync(&mut self, query: &str, params: &[PgValue]) -> PgResult<QueryResult> {
+    pub async fn query_no_sync(
+        &mut self,
+        query: &str,
+        params: &[PgValue],
+    ) -> PgResult<QueryResult> {
         self.query_internal(query, params, false).await
     }
 
@@ -525,7 +529,12 @@ impl PgConnection {
     /// to save a round trip:
     /// - Old flow: Flush BEGIN → wait → Prepare → wait → Execute → wait (3 RT)
     /// - New flow: Flush BEGIN+Parse+Describe → wait → Execute → wait (2 RT)
-    pub async fn query_in_transaction(&mut self, query: &str, params: &[PgValue], consume_begin: bool) -> PgResult<QueryResult> {
+    pub async fn query_in_transaction(
+        &mut self,
+        query: &str,
+        params: &[PgValue],
+        consume_begin: bool,
+    ) -> PgResult<QueryResult> {
         if self.closed {
             return Err(PgError::ConnectionClosed);
         }
@@ -566,7 +575,8 @@ impl PgConnection {
                 self.consume_begin_response().await?;
 
                 // Consume prepare response
-                self.consume_prepare_response(query, stmt_name, param_types).await?
+                self.consume_prepare_response(query, stmt_name, param_types)
+                    .await?
             } else {
                 // No BEGIN pending, prepare normally
                 self.prepare_internal(query, params).await?
@@ -605,7 +615,7 @@ impl PgConnection {
         // Now read query response
         let mut result = QueryResult::new();
         let columns = &stmt.columns;
-        result.columns = Arc::clone(columns);  // Cheap refcount increment, no data clone
+        result.columns = Arc::clone(columns); // Cheap refcount increment, no data clone
 
         loop {
             let msg = self.receive_message().await?;
@@ -632,7 +642,12 @@ impl PgConnection {
     }
 
     /// Internal query implementation.
-    async fn query_internal(&mut self, query: &str, params: &[PgValue], sync: bool) -> PgResult<QueryResult> {
+    async fn query_internal(
+        &mut self,
+        query: &str,
+        params: &[PgValue],
+        sync: bool,
+    ) -> PgResult<QueryResult> {
         if self.closed {
             return Err(PgError::ConnectionClosed);
         }
@@ -652,7 +667,11 @@ impl PgConnection {
     /// Prepare a statement explicitly.
     ///
     /// Returns an Arc-wrapped statement for efficient sharing and cache retrieval.
-    pub async fn prepare(&mut self, query: &str, param_types: &[Oid]) -> PgResult<Arc<PreparedStatement>> {
+    pub async fn prepare(
+        &mut self,
+        query: &str,
+        param_types: &[Oid],
+    ) -> PgResult<Arc<PreparedStatement>> {
         if self.closed {
             return Err(PgError::ConnectionClosed);
         }
@@ -700,7 +719,8 @@ impl PgConnection {
 
                     // Cache the statement (Arc-wrapped for cheap cloning)
                     let stmt = Arc::new(stmt);
-                    self.statement_cache.insert_arc(query.to_string(), Arc::clone(&stmt));
+                    self.statement_cache
+                        .insert_arc(query.to_string(), Arc::clone(&stmt));
 
                     return Ok(stmt);
                 }
@@ -714,7 +734,11 @@ impl PgConnection {
     }
 
     /// Prepare a statement internally (infer types from params).
-    async fn prepare_internal(&mut self, query: &str, params: &[PgValue]) -> PgResult<Arc<PreparedStatement>> {
+    async fn prepare_internal(
+        &mut self,
+        query: &str,
+        params: &[PgValue],
+    ) -> PgResult<Arc<PreparedStatement>> {
         let param_types: Vec<Oid> = params.iter().map(|p| p.type_oid()).collect();
         self.prepare(query, &param_types).await
     }
@@ -723,7 +747,12 @@ impl PgConnection {
     ///
     /// Call this after flushing buffered Parse+Describe messages.
     /// Returns an Arc-wrapped statement for efficient sharing.
-    async fn consume_prepare_response(&mut self, query: &str, stmt_name: String, param_types: Vec<Oid>) -> PgResult<Arc<PreparedStatement>> {
+    async fn consume_prepare_response(
+        &mut self,
+        query: &str,
+        stmt_name: String,
+        param_types: Vec<Oid>,
+    ) -> PgResult<Arc<PreparedStatement>> {
         let mut stmt = PreparedStatement::new(stmt_name, query.to_string());
         stmt.set_param_types(param_types);
 
@@ -739,13 +768,15 @@ impl PgConnection {
                     stmt.set_columns(fields);
                     // RowDescription is the last response for a SELECT-like query
                     let stmt = Arc::new(stmt);
-                    self.statement_cache.insert_arc(query.to_string(), Arc::clone(&stmt));
+                    self.statement_cache
+                        .insert_arc(query.to_string(), Arc::clone(&stmt));
                     return Ok(stmt);
                 }
                 BackendMessage::NoData => {
                     // Query doesn't return rows - NoData is the last response
                     let stmt = Arc::new(stmt);
-                    self.statement_cache.insert_arc(query.to_string(), Arc::clone(&stmt));
+                    self.statement_cache
+                        .insert_arc(query.to_string(), Arc::clone(&stmt));
                     return Ok(stmt);
                 }
                 BackendMessage::ErrorResponse { fields } => {
@@ -757,19 +788,32 @@ impl PgConnection {
     }
 
     /// Execute a prepared statement.
-    pub async fn execute(&mut self, stmt: &PreparedStatement, params: &[PgValue]) -> PgResult<QueryResult> {
+    pub async fn execute(
+        &mut self,
+        stmt: &PreparedStatement,
+        params: &[PgValue],
+    ) -> PgResult<QueryResult> {
         self.execute_internal(stmt, params, true).await
     }
 
     /// Execute without syncing (for pipelining within transactions).
     ///
     /// WARNING: Caller must call sync() after all pipelined operations.
-    pub async fn execute_no_sync(&mut self, stmt: &PreparedStatement, params: &[PgValue]) -> PgResult<QueryResult> {
+    pub async fn execute_no_sync(
+        &mut self,
+        stmt: &PreparedStatement,
+        params: &[PgValue],
+    ) -> PgResult<QueryResult> {
         self.execute_internal(stmt, params, false).await
     }
 
     /// Internal execute implementation.
-    async fn execute_internal(&mut self, stmt: &PreparedStatement, params: &[PgValue], sync: bool) -> PgResult<QueryResult> {
+    async fn execute_internal(
+        &mut self,
+        stmt: &PreparedStatement,
+        params: &[PgValue],
+        sync: bool,
+    ) -> PgResult<QueryResult> {
         if self.closed {
             return Err(PgError::ConnectionClosed);
         }
@@ -938,10 +982,13 @@ impl PgConnection {
         loop {
             // Try to decode from buffer first
             if self.read_buffer.len() >= 5 {
-                let msg_type = self.read_buffer[0];
-                let length =
-                    i32::from_be_bytes([self.read_buffer[1], self.read_buffer[2], self.read_buffer[3], self.read_buffer[4]])
-                        as usize;
+                let _msg_type = self.read_buffer[0];
+                let length = i32::from_be_bytes([
+                    self.read_buffer[1],
+                    self.read_buffer[2],
+                    self.read_buffer[3],
+                    self.read_buffer[4],
+                ]) as usize;
 
                 let total_len = 1 + length; // type byte + length field value (includes length field itself)
 

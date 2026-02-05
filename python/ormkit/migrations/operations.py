@@ -389,7 +389,7 @@ class Operations:
             print(sql)
     """
 
-    def __init__(self, dialect: str = "postgresql"):
+    def __init__(self, dialect: str = "postgresql") -> None:
         self.dialect = dialect
         self._operations: list[Operation] = []
 

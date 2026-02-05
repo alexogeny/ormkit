@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from ormkit.base import Base
@@ -13,7 +13,7 @@ T = TypeVar("T", bound="Base")
 
 
 @dataclass
-class SelectStatement(Generic[T]):
+class SelectStatement[T: "Base"]:
     """Represents a SELECT query."""
 
     model: type[T]
@@ -143,7 +143,7 @@ class SelectStatement(Generic[T]):
 
 
 @dataclass
-class InsertStatement(Generic[T]):
+class InsertStatement[T: "Base"]:
     """Represents an INSERT query with optional ON CONFLICT (upsert) support."""
 
     model: type[T]
@@ -322,7 +322,7 @@ class InsertStatement(Generic[T]):
 
 
 @dataclass
-class UpdateStatement(Generic[T]):
+class UpdateStatement[T: "Base"]:
     """Represents an UPDATE query."""
 
     model: type[T]
@@ -378,7 +378,7 @@ class UpdateStatement(Generic[T]):
 
 
 @dataclass
-class DeleteStatement(Generic[T]):
+class DeleteStatement[T: "Base"]:
     """Represents a DELETE query."""
 
     model: type[T]
@@ -420,7 +420,7 @@ class WhereClause:
     value: Any
 
 
-def select(model: type[T]) -> SelectStatement[T]:
+def select[T: "Base"](model: type[T]) -> SelectStatement[T]:
     """Create a SELECT statement for a model.
 
     Example:
@@ -430,7 +430,7 @@ def select(model: type[T]) -> SelectStatement[T]:
     return SelectStatement(model=model)
 
 
-def insert(model: type[T]) -> InsertStatement[T]:
+def insert[T: "Base"](model: type[T]) -> InsertStatement[T]:
     """Create an INSERT statement for a model.
 
     Example:
@@ -440,7 +440,7 @@ def insert(model: type[T]) -> InsertStatement[T]:
     return InsertStatement(model=model)
 
 
-def update(model: type[T]) -> UpdateStatement[T]:
+def update[T: "Base"](model: type[T]) -> UpdateStatement[T]:
     """Create an UPDATE statement for a model.
 
     Example:
@@ -450,7 +450,7 @@ def update(model: type[T]) -> UpdateStatement[T]:
     return UpdateStatement(model=model)
 
 
-def delete(model: type[T]) -> DeleteStatement[T]:
+def delete[T: "Base"](model: type[T]) -> DeleteStatement[T]:
     """Create a DELETE statement for a model.
 
     Example:

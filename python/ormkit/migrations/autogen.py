@@ -99,7 +99,7 @@ class AutogenContext:
         self,
         pool: ConnectionPool,
         models: list[type[Base]],
-    ):
+    ) -> None:
         """Initialize the autogen context.
 
         Args:
@@ -312,7 +312,7 @@ class AutogenContext:
             for index_name, model_idx in model_indexes.items():
                 # Check if an equivalent index exists (same columns)
                 found = False
-                for db_idx_name, db_idx in db_indexes.items():
+                for _db_idx_name, db_idx in db_indexes.items():
                     if set(db_idx.columns) == set(model_idx.columns):
                         found = True
                         break

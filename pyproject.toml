@@ -36,10 +36,16 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 
-[tool.pyright]
+[tool.ty.environment]
+# Type checking configuration (ty is ~100x faster than pyright)
+python-version = "3.12"
+
+[tool.ty.src]
 include = ["python/ormkit", "tests"]
-pythonVersion = "3.12"
-typeCheckingMode = "strict"
+
+[tool.ty.rules]
+# Ignore unresolved imports for the compiled Rust extension (_ormkit)
+unresolved-import = "ignore"
 
 [tool.ruff]
 line-length = 100
@@ -47,13 +53,33 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "ANN", "B", "C4", "SIM"]
+ignore = [
+    "ANN401",  # Dynamically typed expressions (Any) - necessary for ORM
+    "ANN001",  # Missing type annotation for function argument - handled by pyright
+    "ANN002",  # Missing type annotation for *args
+    "ANN003",  # Missing type annotation for **kwargs
+    "N817",    # CamelCase imported as acronym - common pattern
+    "SIM102",  # Nested if statements - sometimes clearer
+    "SIM105",  # Use contextlib.suppress - not always clearer
+    "SIM108",  # Use ternary operator - not always clearer
+    "SIM118",  # Use key in dict - .keys() is sometimes clearer
+    "UP037",   # Remove quotes from type annotation - needed for forward refs
+    "UP046",   # Use type parameters - keeping Generic[T] for 3.12 compat
+    "B007",    # Loop control variable not used - sometimes intentional
+    "C401",    # Unnecessary generator - readability preference
+    "E402",    # Module level import not at top - sometimes necessary
+    "E501",    # Line too long - handled case by case
+]
+
+[tool.ruff.lint.per-file-ignores]
+"python/ormkit/cli/__init__.py" = ["F401"]  # CLI has planned unused imports
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-benchmark>=5.0",
-    "pyright>=1.1",
+    "ty>=0.0.1a7",
     "ruff>=0.8",
     "maturin>=1.7",
 ]

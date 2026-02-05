@@ -13,14 +13,20 @@ async fn test_execute_and_query() {
     let conn = SqliteConnection::open(":memory:").await.unwrap();
 
     // Create table
-    conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT, value REAL)", &[])
-        .await
-        .unwrap();
+    conn.execute(
+        "CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT, value REAL)",
+        &[],
+    )
+    .await
+    .unwrap();
 
     // Insert
     conn.execute(
         "INSERT INTO test (name, value) VALUES (?, ?)",
-        &[SqliteValue::Text("hello".to_string()), SqliteValue::Real(1.5)],
+        &[
+            SqliteValue::Text("hello".to_string()),
+            SqliteValue::Real(1.5),
+        ],
     )
     .await
     .unwrap();

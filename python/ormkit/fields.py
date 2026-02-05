@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from typing import Any, Generic, TypeVar, Union
+from typing import Any, TypeVar, Union
 
 T = TypeVar("T")
 
@@ -31,7 +31,7 @@ class JSON:
 
 
 # Type alias for Mapped - indicates a database column
-class Mapped(Generic[T]):
+class Mapped[T]:
     """Type annotation wrapper indicating a database-mapped column.
 
     Example:
@@ -105,10 +105,7 @@ class ColumnInfo:
         if origin is Union:
             args = getattr(self.python_type, "__args__", ())
             non_none = [a for a in args if a is not type(None)]
-            if non_none:
-                actual_type = non_none[0]
-            else:
-                actual_type = str
+            actual_type = non_none[0] if non_none else str
         else:
             actual_type = self.python_type
 

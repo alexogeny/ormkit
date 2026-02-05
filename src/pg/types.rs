@@ -228,7 +228,9 @@ impl PgValue {
                         data.len()
                     )));
                 }
-                Ok(PgValue::Float4(f32::from_be_bytes(data.try_into().unwrap())))
+                Ok(PgValue::Float4(f32::from_be_bytes(
+                    data.try_into().unwrap(),
+                )))
             }
 
             Oid::FLOAT8 => {
@@ -238,7 +240,9 @@ impl PgValue {
                         data.len()
                     )));
                 }
-                Ok(PgValue::Float8(f64::from_be_bytes(data.try_into().unwrap())))
+                Ok(PgValue::Float8(f64::from_be_bytes(
+                    data.try_into().unwrap(),
+                )))
             }
 
             Oid::TEXT | Oid::VARCHAR | Oid::BPCHAR | Oid::CHAR | Oid::NAME => {

@@ -34,7 +34,10 @@ mod message_encoding {
 
         // Check that user parameter is present
         let encoded_str = String::from_utf8_lossy(&encoded);
-        assert!(encoded_str.contains("user"), "Should contain 'user' parameter");
+        assert!(
+            encoded_str.contains("user"),
+            "Should contain 'user' parameter"
+        );
     }
 
     #[test]
@@ -302,7 +305,10 @@ mod message_decoding {
         match msg {
             BackendMessage::DataRow { values } => {
                 assert_eq!(values.len(), 2);
-                assert_eq!(values[0], Some(Bytes::copy_from_slice(&42i32.to_be_bytes())));
+                assert_eq!(
+                    values[0],
+                    Some(Bytes::copy_from_slice(&42i32.to_be_bytes()))
+                );
                 assert_eq!(values[1], None); // NULL
             }
             _ => panic!("Should decode as DataRow"),
@@ -535,8 +541,8 @@ mod type_decoding {
 // ============================================================================
 
 mod statement_cache {
-    use std::sync::Arc;
     use super::super::statement::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_cache_insert_and_get() {
@@ -549,7 +555,10 @@ mod statement_cache {
             columns: Arc::new(vec![]),
         };
 
-        cache.insert("SELECT * FROM users WHERE id = $1".to_string(), stmt.clone());
+        cache.insert(
+            "SELECT * FROM users WHERE id = $1".to_string(),
+            stmt.clone(),
+        );
 
         let found = cache.get("SELECT * FROM users WHERE id = $1");
         assert!(found.is_some());
@@ -673,7 +682,10 @@ mod integration {
         assert_eq!(result2.rows[0][0], PgValue::Int4(2));
 
         // Verify statement was cached
-        assert!(conn.statement_cache().get("SELECT $1::int4 as num").is_some());
+        assert!(conn
+            .statement_cache()
+            .get("SELECT $1::int4 as num")
+            .is_some());
     }
 
     #[tokio::test]

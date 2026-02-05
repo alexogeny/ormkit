@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
@@ -92,9 +92,9 @@ class SoftDeleteMixin:
 
     def mark_deleted(self) -> None:
         """Mark this instance as deleted (sets deleted_at to now)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        self.deleted_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+        self.deleted_at = datetime.now(UTC)  # type: ignore[assignment]
 
     def mark_restored(self) -> None:
         """Restore a soft-deleted instance (clears deleted_at)."""

@@ -47,7 +47,7 @@ class MigrationRunner:
         self,
         pool: ConnectionPool,
         config: AlembicConfig | None = None,
-    ):
+    ) -> None:
         """Initialize the migration runner.
 
         Args:

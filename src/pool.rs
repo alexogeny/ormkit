@@ -56,8 +56,8 @@ impl ConnectionPool {
                 .or_else(|| url.strip_prefix("sqlite:"))
                 .unwrap_or(":memory:");
 
-            let sqlite_config = SqlitePoolConfig::new(path)
-                .max_read_connections(config.max_connections);
+            let sqlite_config =
+                SqlitePoolConfig::new(path).max_read_connections(config.max_connections);
 
             let pool = SqlitePool::connect(sqlite_config)
                 .await
@@ -84,7 +84,12 @@ impl ConnectionPool {
     }
 
     /// Execute PostgreSQL query - optimized path
-    async fn execute_pg(&self, pool: &PgPool, sql: &str, params: Vec<SqlParam>) -> Result<QueryResult> {
+    async fn execute_pg(
+        &self,
+        pool: &PgPool,
+        sql: &str,
+        params: Vec<SqlParam>,
+    ) -> Result<QueryResult> {
         let pg_params: Vec<PgValue> = params.into_iter().map(sql_param_to_pg).collect();
 
         let result = pool
@@ -100,7 +105,8 @@ impl ConnectionPool {
             .into_iter()
             .map(|row| {
                 // Use SmallVec::from_iter for efficient inline storage (avoids heap for ≤16 columns)
-                let values: SmallVec<[RowValue; 16]> = row.into_iter().map(pg_value_to_row).collect();
+                let values: SmallVec<[RowValue; 16]> =
+                    row.into_iter().map(pg_value_to_row).collect();
                 LazyRow { values }
             })
             .collect();
@@ -109,7 +115,12 @@ impl ConnectionPool {
     }
 
     /// Execute SQLite query - optimized path
-    async fn execute_sqlite(&self, pool: &SqlitePool, sql: &str, params: Vec<SqlParam>) -> Result<QueryResult> {
+    async fn execute_sqlite(
+        &self,
+        pool: &SqlitePool,
+        sql: &str,
+        params: Vec<SqlParam>,
+    ) -> Result<QueryResult> {
         let sqlite_params: Vec<SqliteValue> = params.into_iter().map(sql_param_to_sqlite).collect();
 
         let result = pool
@@ -124,7 +135,8 @@ impl ConnectionPool {
             .into_iter()
             .map(|row| {
                 // Use SmallVec::from_iter for efficient inline storage (avoids heap for ≤16 columns)
-                let values: SmallVec<[RowValue; 16]> = row.into_iter().map(sqlite_value_to_row).collect();
+                let values: SmallVec<[RowValue; 16]> =
+                    row.into_iter().map(sqlite_value_to_row).collect();
                 LazyRow { values }
             })
             .collect();
@@ -142,7 +154,8 @@ impl ConnectionPool {
                     .map_err(|e| ForeignKeyError::QueryError(e.to_string()))
             }
             PoolInner::Sqlite(pool) => {
-                let sqlite_params: Vec<SqliteValue> = params.into_iter().map(sql_param_to_sqlite).collect();
+                let sqlite_params: Vec<SqliteValue> =
+                    params.into_iter().map(sql_param_to_sqlite).collect();
                 pool.execute(sql, &sqlite_params)
                     .await
                     .map_err(|e| ForeignKeyError::QueryError(e.to_string()))
@@ -201,7 +214,10 @@ impl ConnectionPool {
         match self.inner.as_ref() {
             PoolInner::Postgres(pool) => {
                 let result = pool
-                    .query(crate::schema::PG_COLUMNS_QUERY, &[PgValue::Text(table.to_string())])
+                    .query(
+                        crate::schema::PG_COLUMNS_QUERY,
+                        &[PgValue::Text(table.to_string())],
+                    )
                     .await
                     .map_err(|e| ForeignKeyError::QueryError(e.to_string()))?;
 
@@ -297,7 +313,10 @@ impl ConnectionPool {
         match self.inner.as_ref() {
             PoolInner::Postgres(pool) => {
                 let result = pool
-                    .query(crate::schema::PG_INDEXES_QUERY, &[PgValue::Text(table.to_string())])
+                    .query(
+                        crate::schema::PG_INDEXES_QUERY,
+                        &[PgValue::Text(table.to_string())],
+                    )
                     .await
                     .map_err(|e| ForeignKeyError::QueryError(e.to_string()))?;
 
@@ -404,7 +423,10 @@ impl ConnectionPool {
         match self.inner.as_ref() {
             PoolInner::Postgres(pool) => {
                 let result = pool
-                    .query(crate::schema::PG_CONSTRAINTS_QUERY, &[PgValue::Text(table.to_string())])
+                    .query(
+                        crate::schema::PG_CONSTRAINTS_QUERY,
+                        &[PgValue::Text(table.to_string())],
+                    )
                     .await
                     .map_err(|e| ForeignKeyError::QueryError(e.to_string()))?;
 
@@ -423,13 +445,12 @@ impl ConnectionPool {
                         };
                         // Columns come as an array
                         let columns: Vec<String> = match iter.next() {
-                            Some(PgValue::Text(s)) => {
-                                s.trim_matches(|c| c == '{' || c == '}')
-                                    .split(',')
-                                    .map(|s| s.trim().to_string())
-                                    .filter(|s| !s.is_empty())
-                                    .collect()
-                            }
+                            Some(PgValue::Text(s)) => s
+                                .trim_matches(|c| c == '{' || c == '}')
+                                .split(',')
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect(),
                             _ => vec![],
                         };
                         let references_table = match iter.next() {
@@ -723,11 +744,7 @@ impl ConnectionPool {
             if let Some(colon_pos) = self.url[..at_pos].rfind(':') {
                 let scheme_end = self.url.find("://").map(|p| p + 3).unwrap_or(0);
                 if colon_pos > scheme_end {
-                    return format!(
-                        "{}:****{}",
-                        &self.url[..colon_pos],
-                        &self.url[at_pos..]
-                    );
+                    return format!("{}:****{}", &self.url[..colon_pos], &self.url[at_pos..]);
                 }
             }
         }
@@ -746,12 +763,19 @@ impl ConnectionPool {
 
     /// Execute a SQL query and return results
     #[pyo3(signature = (sql, params=None))]
-    fn execute<'py>(&self, py: Python<'py>, sql: String, params: Option<Vec<PyObject>>) -> PyResult<Bound<'py, PyAny>> {
+    fn execute<'py>(
+        &self,
+        py: Python<'py>,
+        sql: String,
+        params: Option<Vec<PyObject>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let pool = self.clone();
         let sql_params = convert_py_params(py, params.unwrap_or_default())?;
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let result = pool.execute_query(&sql, sql_params).await
+            let result = pool
+                .execute_query(&sql, sql_params)
+                .await
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(result)
         })
@@ -759,12 +783,19 @@ impl ConnectionPool {
 
     /// Execute a statement that doesn't return rows
     #[pyo3(signature = (sql, params=None))]
-    fn execute_statement_py<'py>(&self, py: Python<'py>, sql: String, params: Option<Vec<PyObject>>) -> PyResult<Bound<'py, PyAny>> {
+    fn execute_statement_py<'py>(
+        &self,
+        py: Python<'py>,
+        sql: String,
+        params: Option<Vec<PyObject>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let pool = self.clone();
         let sql_params = convert_py_params(py, params.unwrap_or_default())?;
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let rows_affected = pool.execute_statement(&sql, sql_params).await
+            let rows_affected = pool
+                .execute_statement(&sql, sql_params)
+                .await
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(rows_affected)
         })
@@ -777,11 +808,14 @@ impl ConnectionPool {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             match pool_inner.as_ref() {
                 PoolInner::Postgres(pool) => {
-                    let mut conn = pool.acquire().await
+                    let mut conn = pool
+                        .acquire()
+                        .await
                         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
                     // Buffer BEGIN without flushing - will be sent with first query
-                    conn.begin_deferred().await
+                    conn.begin_deferred()
+                        .await
                         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
                     Ok(Transaction {
@@ -789,11 +823,9 @@ impl ConnectionPool {
                         begun: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     })
                 }
-                PoolInner::Sqlite(_) => {
-                    Err(pyo3::exceptions::PyRuntimeError::new_err(
-                        "SQLite transactions not yet implemented"
-                    ))
-                }
+                PoolInner::Sqlite(_) => Err(pyo3::exceptions::PyRuntimeError::new_err(
+                    "SQLite transactions not yet implemented",
+                )),
             }
         })
     }
@@ -954,10 +986,12 @@ impl Transaction {
                     let _ = c.rollback().await;
                 } else {
                     // Commit - includes Sync
-                    c.commit().await
-                        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(
-                            format!("Failed to commit: {}", e)
-                        ))?;
+                    c.commit().await.map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "Failed to commit: {}",
+                            e
+                        ))
+                    })?;
                 }
             }
             // Take the connection out of the Option so it gets dropped,
@@ -973,15 +1007,21 @@ impl Transaction {
     /// First call sends buffered BEGIN + query together (deferred BEGIN).
     /// Subsequent calls use query_no_sync() - skips ReadyForQuery wait.
     #[pyo3(signature = (sql, params=None))]
-    fn execute<'py>(&self, py: Python<'py>, sql: String, params: Option<Vec<PyObject>>) -> PyResult<Bound<'py, PyAny>> {
+    fn execute<'py>(
+        &self,
+        py: Python<'py>,
+        sql: String,
+        params: Option<Vec<PyObject>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let sql_params = convert_py_params(py, params.unwrap_or_default())?;
         let conn = Arc::clone(&self.conn);
         let begun = Arc::clone(&self.begun);
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut guard = conn.lock().await;
-            let c = guard.as_mut()
-                .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Transaction not active"))?;
+            let c = guard.as_mut().ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("Transaction not active")
+            })?;
 
             // On first query, we need to consume BEGIN response after flush
             let is_first = !begun.swap(true, std::sync::atomic::Ordering::SeqCst);
@@ -989,7 +1029,9 @@ impl Transaction {
             let pg_params: Vec<PgValue> = sql_params.into_iter().map(sql_param_to_pg).collect();
 
             // Execute query, consuming deferred BEGIN on first call
-            let result = c.query_in_transaction(&sql, &pg_params, is_first).await
+            let result = c
+                .query_in_transaction(&sql, &pg_params, is_first)
+                .await
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
             // Convert to our QueryResult format - extract column names from Arc<Vec<FieldDescription>>
@@ -999,7 +1041,8 @@ impl Transaction {
                 .rows
                 .into_iter()
                 .map(|row| {
-                    let values: SmallVec<[RowValue; 16]> = row.into_iter().map(pg_value_to_row).collect();
+                    let values: SmallVec<[RowValue; 16]> =
+                        row.into_iter().map(pg_value_to_row).collect();
                     LazyRow { values }
                 })
                 .collect();
@@ -1014,7 +1057,12 @@ impl Transaction {
     /// sends all queries without waiting for responses, then collects
     /// all results at once.
     #[pyo3(signature = (sql, params_list))]
-    fn execute_many<'py>(&self, py: Python<'py>, sql: String, params_list: Vec<Vec<PyObject>>) -> PyResult<Bound<'py, PyAny>> {
+    fn execute_many<'py>(
+        &self,
+        py: Python<'py>,
+        sql: String,
+        params_list: Vec<Vec<PyObject>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
         // Convert all params upfront
         let all_params: Vec<Vec<SqlParam>> = params_list
             .into_iter()
@@ -1025,8 +1073,9 @@ impl Transaction {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut guard = conn.lock().await;
-            let c = guard.as_mut()
-                .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Transaction not active"))?;
+            let c = guard.as_mut().ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("Transaction not active")
+            })?;
 
             let count = all_params.len();
 
@@ -1034,13 +1083,16 @@ impl Transaction {
             let mut results = Vec::with_capacity(count);
             for params in all_params {
                 let pg_params: Vec<PgValue> = params.into_iter().map(sql_param_to_pg).collect();
-                let result = c.query_no_sync(&sql, &pg_params).await
+                let result = c
+                    .query_no_sync(&sql, &pg_params)
+                    .await
                     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
                 results.push(result);
             }
 
             // Sync to ensure all commands are processed
-            c.sync().await
+            c.sync()
+                .await
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
             Ok(count as u64)
@@ -1082,15 +1134,16 @@ fn convert_py_params(py: Python<'_>, params: Vec<PyObject>) -> PyResult<Vec<SqlP
             // Convert Python dict/list to JSON string via serde_json::Value
             // Two steps: pythonize (Python → Value) then to_vec (Value → bytes → String)
             // Using to_vec is faster than to_string as it skips UTF-8 validation
-            let json_value: serde_json::Value = pythonize::depythonize(bound)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(
-                    format!("Failed to serialize to JSON: {}", e)
-                ))?;
+            let json_value: serde_json::Value = pythonize::depythonize(bound).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Failed to serialize to JSON: {}",
+                    e
+                ))
+            })?;
             // Use to_vec for speed, then unsafe convert to String (JSON is always valid UTF-8)
-            let json_bytes = serde_json::to_vec(&json_value)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(
-                    format!("Failed to serialize JSON: {}", e)
-                ))?;
+            let json_bytes = serde_json::to_vec(&json_value).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize JSON: {}", e))
+            })?;
             // SAFETY: serde_json always produces valid UTF-8
             let json_string = unsafe { String::from_utf8_unchecked(json_bytes) };
             result.push(SqlParam::Json(json_string));
