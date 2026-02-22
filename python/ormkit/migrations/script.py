@@ -186,7 +186,7 @@ class MigrationScript:
         except Exception as e:
             # Log but don't fail - we might just be reading metadata
             import warnings
-            warnings.warn(f"Failed to load migration functions from {path}: {e}")
+            warnings.warn(f"Failed to load migration functions from {path}: {e}", stacklevel=2)
 
         return script
 

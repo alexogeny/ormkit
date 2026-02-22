@@ -723,7 +723,7 @@ class AsyncSession:
 
         # Add RETURNING for PostgreSQL
         if pk_col and self._dialect == "postgresql":
-            sql += f" RETURNING *"
+            sql += " RETURNING *"
             result = await self._pool.execute(sql, params)
             row = result.first()
             if row:
