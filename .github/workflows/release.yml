@@ -52,3 +52,10 @@ jobs:
           draft: false
           prerelease: false
 
+  publish:
+    needs: release
+    uses: ./.github/workflows/publish.yml
+    permissions:
+      contents: read
+      id-token: write
+
