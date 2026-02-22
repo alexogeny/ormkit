@@ -329,6 +329,7 @@ class AsyncSession:
         self._identity_map: dict[tuple[type, Any], Base] = {}
         self._autoflush = autoflush
         self._dialect = "postgresql" if pool.is_postgres() else "sqlite"
+        self._sqlite_returning_supported: bool | None = None
 
     async def __aenter__(self) -> AsyncSession:
         return self
@@ -721,39 +722,35 @@ class AsyncSession:
                 set_parts = [f"{col} = {excluded_prefix}.{col}" for col in values if col != pk_col]
             sql += f" ON CONFLICT ({conflict_str}) DO UPDATE SET {', '.join(set_parts)}"
 
-        # Add RETURNING for PostgreSQL
+        row: dict[str, Any] | None = None
+
         if pk_col and self._dialect == "postgresql":
             sql += " RETURNING *"
             result = await self._pool.execute(sql, params)
             row = result.first()
-            if row:
-                # Update all columns from the returned row
-                for col in cls.__columns__:
-                    if col in row:
-                        setattr(instance, col, row[col])
+        elif pk_col and not do_nothing and self._dialect == "sqlite":
+            supports_returning = await self._sqlite_supports_returning()
+            if supports_returning:
+                try:
+                    result = await self._pool.execute(f"{sql} RETURNING *", params)
+                    row = result.first()
+                except Exception as exc:
+                    if self._is_sqlite_returning_unsupported_error(exc):
+                        self._sqlite_returning_supported = False
+                    else:
+                        raise
+            if row is None:
+                await self._pool.execute_statement_py(sql, params)
+                keys = self._conflict_keys_from_instances([instance], conflict_cols)
+                rows = await self._fetch_rows_by_conflict_keys(table, conflict_cols, keys)
+                row = rows[0] if rows else None
         else:
             await self._pool.execute_statement_py(sql, params)
-            # For SQLite, we need to query back the row to get all values
-            # This handles both insert (new ID) and update (existing ID) cases
-            if pk_col and not do_nothing:
-                # Query by conflict target to get the actual row
-                conflict_cols = [conflict_target] if isinstance(conflict_target, str) else conflict_target
-                where_parts = []
-                query_params = []
-                for col in conflict_cols:
-                    if col in values:
-                        where_parts.append(f"{col} = ?")
-                        query_params.append(values[col])
 
-                if where_parts:
-                    query_sql = f"SELECT * FROM {table} WHERE {' AND '.join(where_parts)}"
-                    result = await self._pool.execute(query_sql, query_params)
-                    row = result.first()
-                    if row:
-                        # Update all columns from the returned row
-                        for col in cls.__columns__:
-                            if col in row:
-                                setattr(instance, col, row[col])
+        if row:
+            for col in cls.__columns__:
+                if col in row:
+                    setattr(instance, col, row[col])
 
         # Update identity map - this ensures session.get() returns
         # the upserted instance (not a stale cached one)
@@ -793,19 +790,160 @@ class AsyncSession:
         if not instances:
             return []
 
-        # For now, upsert one at a time
-        # TODO: Optimize with batch upsert for PostgreSQL using unnest()
-        results = []
-        for instance in instances:
-            result = await self.upsert(
-                instance,
-                conflict_target=conflict_target,
-                update_fields=update_fields,
-                do_nothing=do_nothing,
-            )
-            results.append(result)
+        cls = type(instances[0])
+        table = cls.__tablename__
+        pk_col = cls.__primary_key__
 
-        return results
+        # Get columns to insert (exclude autoincrement PK)
+        insert_cols = [
+            col_name
+            for col_name, col_info in cls.__columns__.items()
+            if not (col_info.primary_key and col_info.autoincrement)
+        ]
+
+        # Determine update columns
+        conflict_cols = [conflict_target] if isinstance(conflict_target, str) else conflict_target
+        conflict_str = ", ".join(conflict_cols)
+
+        if do_nothing:
+            update_cols = None
+        elif update_fields:
+            update_cols = update_fields
+        else:
+            update_cols = [c for c in insert_cols if c != pk_col]
+
+        # Batch size limits
+        max_params = 900 if self._dialect == "sqlite" else 30000
+        batch_size = max_params // max(len(insert_cols), 1)
+
+        for batch_start in range(0, len(instances), batch_size):
+            batch = instances[batch_start:batch_start + batch_size]
+            await self._upsert_batch(
+                cls, batch, insert_cols, table, pk_col,
+                conflict_cols, conflict_str, update_cols, do_nothing,
+            )
+
+        return instances
+
+    async def _upsert_batch(
+        self,
+        cls: type,
+        instances: list,
+        insert_cols: list[str],
+        table: str,
+        pk_col: str | None,
+        conflict_cols: list[str],
+        conflict_str: str,
+        update_cols: list[str] | None,
+        do_nothing: bool,
+    ) -> None:
+        """Upsert a single batch of instances."""
+        from ormkit.fields import ColumnInfo
+
+        params: list[Any] = []
+        value_groups = []
+
+        for instance in instances:
+            placeholders = []
+            for col in insert_cols:
+                if self._dialect == "postgresql":
+                    placeholders.append(f"${len(params) + 1}")
+                else:
+                    placeholders.append("?")
+
+                try:
+                    val = object.__getattribute__(instance, col)
+                    if isinstance(val, ColumnInfo):
+                        val = None
+                except AttributeError:
+                    val = None
+                params.append(val)
+            value_groups.append(f"({', '.join(placeholders)})")
+
+        col_str = ", ".join(insert_cols)
+        sql = f"INSERT INTO {table} ({col_str}) VALUES {', '.join(value_groups)}"
+
+        # Add ON CONFLICT clause
+        if do_nothing:
+            sql += f" ON CONFLICT ({conflict_str}) DO NOTHING"
+        else:
+            excluded_prefix = "EXCLUDED" if self._dialect == "postgresql" else "excluded"
+            if update_cols:
+                set_parts = [f"{col} = {excluded_prefix}.{col}" for col in update_cols]
+            else:
+                set_parts = [f"{col} = {excluded_prefix}.{col}" for col in insert_cols if col != pk_col]
+            sql += f" ON CONFLICT ({conflict_str}) DO UPDATE SET {', '.join(set_parts)}"
+
+        rows: list[dict[str, Any]] = []
+        used_returning = False
+
+        if pk_col and self._dialect == "postgresql":
+            sql += " RETURNING *"
+            result = await self._pool.execute(sql, params)
+            rows = list(result.all())
+            used_returning = True
+        elif pk_col and not do_nothing and self._dialect == "sqlite":
+            supports_returning = await self._sqlite_supports_returning()
+            if supports_returning:
+                try:
+                    result = await self._pool.execute(f"{sql} RETURNING *", params)
+                    rows = list(result.all())
+                    used_returning = True
+                except Exception as exc:
+                    if self._is_sqlite_returning_unsupported_error(exc):
+                        self._sqlite_returning_supported = False
+                    else:
+                        raise
+
+        if not used_returning:
+            await self._pool.execute_statement_py(sql, params)
+            if pk_col and not do_nothing:
+                keys = self._conflict_keys_from_instances(instances, conflict_cols)
+                rows = await self._fetch_rows_by_conflict_keys(table, conflict_cols, keys)
+
+        if not pk_col or not rows:
+            return
+
+        if used_returning:
+            for instance, row in zip(instances, rows, strict=False):
+                for col in cls.__columns__:
+                    if col in row:
+                        setattr(instance, col, row[col])
+                pk_value = row.get(pk_col)
+                if pk_value is not None:
+                    self._identity_map[(cls, pk_value)] = instance
+            return
+
+        rows_by_key = {
+            tuple(row[col] for col in conflict_cols if col in row): row
+            for row in rows
+            if all(col in row for col in conflict_cols)
+        }
+        for instance in instances:
+            key_values: list[Any] = []
+            valid = True
+            for col in conflict_cols:
+                try:
+                    value = object.__getattribute__(instance, col)
+                except AttributeError:
+                    valid = False
+                    break
+                if isinstance(value, ColumnInfo):
+                    valid = False
+                    break
+                key_values.append(value)
+            if not valid:
+                continue
+
+            row = rows_by_key.get(tuple(key_values))
+            if row is None:
+                continue
+            for col in cls.__columns__:
+                if col in row:
+                    setattr(instance, col, row[col])
+            pk_value = row.get(pk_col)
+            if pk_value is not None:
+                self._identity_map[(cls, pk_value)] = instance
 
     # ========== Traditional Unit of Work API ==========
 
@@ -855,6 +993,113 @@ class AsyncSession:
     async def execute_raw(self, sql: str, params: list[Any] | None = None) -> QueryResult:
         """Execute raw SQL and return results."""
         return await self._pool.execute(sql, params or [])
+
+    @staticmethod
+    def _is_sqlite_returning_unsupported_error(exc: Exception) -> bool:
+        """Return True if exception indicates SQLite RETURNING is not supported."""
+        message = str(exc).lower()
+        return "returning" in message and (
+            "syntax error" in message or "near" in message or "not supported" in message
+        )
+
+    async def _sqlite_supports_returning(self) -> bool:
+        """Detect and cache whether SQLite supports RETURNING (3.35+)."""
+        if self._dialect != "sqlite":
+            return False
+        if self._sqlite_returning_supported is not None:
+            return self._sqlite_returning_supported
+
+        try:
+            result = await self._pool.execute("SELECT sqlite_version() AS version", [])
+            row = result.first()
+            version = row["version"] if row and "version" in row else ""
+            parts = [int(p) for p in str(version).split(".")[:3]]
+            while len(parts) < 3:
+                parts.append(0)
+            self._sqlite_returning_supported = tuple(parts) >= (3, 35, 0)
+        except Exception:
+            self._sqlite_returning_supported = False
+
+        return self._sqlite_returning_supported
+
+    @staticmethod
+    def _conflict_keys_from_instances(
+        instances: list[Any],
+        conflict_cols: list[str],
+    ) -> list[tuple[Any, ...]]:
+        """Extract deduplicated conflict key tuples from model instances."""
+        from ormkit.fields import ColumnInfo
+
+        keys: list[tuple[Any, ...]] = []
+        seen: set[tuple[Any, ...]] = set()
+
+        for instance in instances:
+            values: list[Any] = []
+            complete = True
+            for col in conflict_cols:
+                try:
+                    val = object.__getattribute__(instance, col)
+                except AttributeError:
+                    complete = False
+                    break
+                if isinstance(val, ColumnInfo):
+                    complete = False
+                    break
+                values.append(val)
+
+            if not complete:
+                continue
+
+            key = tuple(values)
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+
+        return keys
+
+    async def _fetch_rows_by_conflict_keys(
+        self,
+        table: str,
+        conflict_cols: list[str],
+        keys: list[tuple[Any, ...]],
+    ) -> list[dict[str, Any]]:
+        """Fetch rows matching conflict key tuples in a single query."""
+        if not keys:
+            return []
+
+        if len(conflict_cols) == 1:
+            col = conflict_cols[0]
+            values = [key[0] for key in keys]
+            if self._dialect == "postgresql":
+                placeholders = ", ".join(f"${i + 1}" for i in range(len(values)))
+            else:
+                placeholders = ", ".join("?" for _ in values)
+            sql = f"SELECT * FROM {table} WHERE {col} IN ({placeholders})"
+            result = await self._pool.execute(sql, values)
+            return list(result.all())
+
+        row_placeholders: list[str] = []
+        params: list[Any] = []
+
+        if self._dialect == "postgresql":
+            param_idx = 1
+            for key in keys:
+                placeholders = []
+                for value in key:
+                    placeholders.append(f"${param_idx}")
+                    params.append(value)
+                    param_idx += 1
+                row_placeholders.append(f"({', '.join(placeholders)})")
+        else:
+            for key in keys:
+                row_placeholders.append("(" + ", ".join("?" for _ in key) + ")")
+                params.extend(key)
+
+        cols_expr = ", ".join(conflict_cols)
+        where_expr = f"({cols_expr}) IN ({', '.join(row_placeholders)})"
+        sql = f"SELECT * FROM {table} WHERE {where_expr}"
+        result = await self._pool.execute(sql, params)
+        return list(result.all())
 
     # ========== Internal Methods ==========
 
@@ -1028,6 +1273,23 @@ class Query[T]:
         self._include_deleted: bool = False
         self._only_deleted: bool = False
 
+    def _copy(self) -> Query[T]:
+        """Create a shallow copy of this query for immutable chaining."""
+        new = Query(self._session, self._model)
+        new._filters = self._filters.copy()
+        new._q_objects = self._q_objects.copy()
+        new._order = self._order.copy()
+        new._limit_val = self._limit_val
+        new._offset_val = self._offset_val
+        new._load_options = self._load_options.copy()
+        new._distinct = self._distinct
+        new._group_by = self._group_by.copy()
+        new._having = self._having.copy()
+        new._joins = self._joins.copy()
+        new._include_deleted = self._include_deleted
+        new._only_deleted = self._only_deleted
+        return new
+
     def filter(self, *q_objects: Q, **kwargs: Any) -> Query[T]:
         """Add filter conditions using Django-style kwargs or Q objects.
 
@@ -1036,20 +1298,19 @@ class Query[T]:
             >>> query.filter(Q(age__gt=18) | Q(vip=True))
             >>> query.filter(id__in=[1, 2, 3])
         """
-        # Add Q objects
-        self._q_objects.extend(q_objects)
-
-        # Add keyword filters
+        new = self._copy()
+        new._q_objects.extend(q_objects)
         for key, value in kwargs.items():
             col, op = _parse_filter_key(key)
-            self._filters.append((col, op, value))
-        return self
+            new._filters.append((col, op, value))
+        return new
 
     def filter_by(self, **kwargs: Any) -> Query[T]:
         """Alias for filter() with exact matches only."""
+        new = self._copy()
         for key, value in kwargs.items():
-            self._filters.append((key, "eq", value))
-        return self
+            new._filters.append((key, "eq", value))
+        return new
 
     def distinct(self) -> Query[T]:
         """Add DISTINCT to the query.
@@ -1057,8 +1318,9 @@ class Query[T]:
         Example:
             >>> query.distinct().all()
         """
-        self._distinct = True
-        return self
+        new = self._copy()
+        new._distinct = True
+        return new
 
     def group_by(self, *columns: str) -> Query[T]:
         """Add GROUP BY clause.
@@ -1066,8 +1328,9 @@ class Query[T]:
         Example:
             >>> query.group_by("status").count_by("status")
         """
-        self._group_by.extend(columns)
-        return self
+        new = self._copy()
+        new._group_by.extend(columns)
+        return new
 
     def having(self, **kwargs: Any) -> Query[T]:
         """Add HAVING clause (requires GROUP BY).
@@ -1075,30 +1338,34 @@ class Query[T]:
         Example:
             >>> query.group_by("status").having(count__gt=5)
         """
+        new = self._copy()
         for key, value in kwargs.items():
             col, op = _parse_filter_key(key)
-            self._having.append((col, op, value))
-        return self
+            new._having.append((col, op, value))
+        return new
 
     def order_by(self, *columns: str, desc: bool = False) -> Query[T]:
         """Add ORDER BY clause."""
+        new = self._copy()
         direction = "DESC" if desc else "ASC"
         for col in columns:
             if col.startswith("-"):
-                self._order.append((col[1:], "DESC"))
+                new._order.append((col[1:], "DESC"))
             else:
-                self._order.append((col, direction))
-        return self
+                new._order.append((col, direction))
+        return new
 
     def limit(self, n: int) -> Query[T]:
         """Limit results."""
-        self._limit_val = n
-        return self
+        new = self._copy()
+        new._limit_val = n
+        return new
 
     def offset(self, n: int) -> Query[T]:
         """Offset results."""
-        self._offset_val = n
-        return self
+        new = self._copy()
+        new._offset_val = n
+        return new
 
     def options(self, *opts: Any) -> Query[T]:
         """Add loading options for relationships.
@@ -1107,8 +1374,9 @@ class Query[T]:
             >>> from ormkit import selectinload, joinedload
             >>> query.options(selectinload("posts"), joinedload("profile"))
         """
-        self._load_options.extend(opts)
-        return self
+        new = self._copy()
+        new._load_options.extend(opts)
+        return new
 
     def with_deleted(self) -> Query[T]:
         """Include soft-deleted records in results.
@@ -1118,8 +1386,9 @@ class Query[T]:
         Example:
             >>> all_articles = await session.query(Article).with_deleted().all()
         """
-        self._include_deleted = True
-        return self
+        new = self._copy()
+        new._include_deleted = True
+        return new
 
     def only_deleted(self) -> Query[T]:
         """Return only soft-deleted records.
@@ -1129,15 +1398,16 @@ class Query[T]:
         Example:
             >>> deleted = await session.query(Article).only_deleted().all()
         """
-        self._include_deleted = True  # Must include deleted to query them
-        self._only_deleted = True
-        return self
+        new = self._copy()
+        new._include_deleted = True
+        new._only_deleted = True
+        return new
 
     async def all(self) -> list[T]:
         """Execute query and return all results."""
         result = await self._execute()
         instances = result.scalars().all()
-        await self._apply_load_options(instances)
+        await self._apply_load_options(instances, result.join_infos)
         return instances
 
     async def stream(self, batch_size: int = 1000) -> AsyncIterator[T]:
@@ -1156,14 +1426,7 @@ class Query[T]:
         offset = 0
         while True:
             # Fetch a batch
-            batch_query = Query(self._session, self._model)
-            batch_query._filters = self._filters.copy()
-            batch_query._q_objects = self._q_objects.copy()
-            batch_query._order = self._order.copy()
-            batch_query._distinct = self._distinct
-            batch_query._group_by = self._group_by.copy()
-            batch_query._having = self._having.copy()
-            batch_query._load_options = self._load_options.copy()
+            batch_query = self._copy()
             batch_query._limit_val = batch_size
             batch_query._offset_val = offset
 
@@ -1173,7 +1436,7 @@ class Query[T]:
             if not instances:
                 break
 
-            await batch_query._apply_load_options(instances)
+            await batch_query._apply_load_options(instances, result.join_infos)
 
             for instance in instances:
                 yield instance
@@ -1194,18 +1457,18 @@ class Query[T]:
 
     async def first(self) -> T | None:
         """Execute query and return first result."""
-        self._limit_val = 1
-        result = await self._execute()
+        query = self.limit(1)
+        result = await query._execute()
         instance = result.scalars().first()
         if instance:
-            await self._apply_load_options([instance])
+            await query._apply_load_options([instance], result.join_infos)
         return instance
 
     async def one(self) -> T:
         """Execute query and return exactly one result."""
         result = await self._execute()
         instance = result.scalars().one()
-        await self._apply_load_options([instance])
+        await self._apply_load_options([instance], result.join_infos)
         return instance
 
     async def one_or_none(self) -> T | None:
@@ -1213,7 +1476,7 @@ class Query[T]:
         result = await self._execute()
         instance = result.scalars().one_or_none()
         if instance:
-            await self._apply_load_options([instance])
+            await self._apply_load_options([instance], result.join_infos)
         return instance
 
     async def count(self) -> int:
@@ -1253,7 +1516,12 @@ class Query[T]:
 
     async def exists(self) -> bool:
         """Check if any matching rows exist."""
-        return await self.count() > 0
+        table = self._model.__tablename__
+        sql = f"SELECT 1 FROM {table}"
+        where_sql, params = self._build_where_clause()
+        sql += where_sql + " LIMIT 1"
+        result = await self._session._pool.execute(sql, params)
+        return result.first() is not None
 
     async def delete(self) -> int:
         """Delete all matching rows and return count."""
@@ -1303,11 +1571,9 @@ class Query[T]:
 
     async def _execute(self) -> ExecuteResult[T]:
         """Build and execute the SELECT statement."""
-        sql, params = self._build_select_sql()
-        result = await self._session._pool.execute(sql, params)
-
-        # Check if we have JOINs to process
         join_infos = self._build_join_info()
+        sql, params = self._build_select_sql(join_infos=join_infos)
+        result = await self._session._pool.execute(sql, params)
         if join_infos:
             return ExecuteResult(result, self._model, join_infos)
 
@@ -1346,14 +1612,20 @@ class Query[T]:
             return " WHERE " + " AND ".join(where_parts), params
         return "", []
 
-    def _build_select_sql(self, columns: tuple[str, ...] | None = None) -> tuple[str, list[Any]]:
+    def _build_select_sql(
+        self,
+        columns: tuple[str, ...] | None = None,
+        *,
+        join_infos: list[JoinInfo] | None = None,
+    ) -> tuple[str, list[Any]]:
         """Build full SELECT SQL."""
         dialect = self._session._dialect
         table = self._model.__tablename__
         main_alias = "_t0"
 
         # Build JOIN info for joinedload options
-        join_infos = self._build_join_info()
+        if join_infos is None:
+            join_infos = self._build_join_info()
 
         # Columns
         if columns:
@@ -1497,7 +1769,11 @@ class Query[T]:
 
         return sql, params
 
-    async def _apply_load_options(self, instances: list[T]) -> None:
+    async def _apply_load_options(
+        self,
+        instances: list[T],
+        join_infos: list[JoinInfo] | None = None,
+    ) -> None:
         """Apply eager loading options to loaded instances."""
         if not instances or not self._load_options:
             return
@@ -1505,7 +1781,8 @@ class Query[T]:
         from ormkit.relationships import LoadOption
 
         # Get relationships that were already loaded via JOIN
-        join_infos = self._build_join_info()
+        if join_infos is None:
+            join_infos = self._build_join_info()
         joined_rel_names = {j.rel_name for j in join_infos}
 
         # Resolve relationships if needed
@@ -1563,7 +1840,11 @@ class Query[T]:
             if not fk_col or not pk_col:
                 return
 
-            parent_ids = [getattr(inst, pk_col) for inst in instances if hasattr(inst, pk_col)]
+            parent_ids = list({
+                getattr(inst, pk_col)
+                for inst in instances
+                if hasattr(inst, pk_col) and getattr(inst, pk_col) is not None
+            })
             if not parent_ids:
                 for instance in instances:
                     instance._set_relationship(rel_name, [])
@@ -1580,10 +1861,10 @@ class Query[T]:
 
             related_by_parent: dict[Any, list[Any]] = {pid: [] for pid in parent_ids}
             for row in result.all():
-                row_dict = dict(row)
-                parent_id = row_dict.get(fk_col)
+                row_data = row if isinstance(row, dict) else dict(row)
+                parent_id = row_data.get(fk_col)
                 if parent_id in related_by_parent:
-                    related_by_parent[parent_id].append(target_model._from_row_fast(row_dict))
+                    related_by_parent[parent_id].append(target_model._from_row_fast(row_data))
 
             for instance in instances:
                 parent_id = getattr(instance, pk_col, None)
@@ -1618,9 +1899,9 @@ class Query[T]:
 
             related_by_pk: dict[Any, Any] = {}
             for row in result.all():
-                row_dict = dict(row)
-                pk_value = row_dict.get(remote_pk)
-                related_by_pk[pk_value] = target_model._from_row_fast(row_dict)
+                row_data = row if isinstance(row, dict) else dict(row)
+                pk_value = row_data.get(remote_pk)
+                related_by_pk[pk_value] = target_model._from_row_fast(row_data)
 
             for instance in instances:
                 fk_value = getattr(instance, fk_col, None)
@@ -1655,11 +1936,11 @@ class Query[T]:
             return
 
         # Get parent IDs
-        parent_ids = [
+        parent_ids = list({
             getattr(inst, pk_col)
             for inst in instances
             if hasattr(inst, pk_col) and getattr(inst, pk_col) is not None
-        ]
+        })
         if not parent_ids:
             for instance in instances:
                 instance._set_relationship(rel_name, [])
@@ -1715,9 +1996,9 @@ class Query[T]:
         # Build mapping: target_id -> target instance
         targets_by_id: dict[Any, Any] = {}
         for row in target_result.all():
-            row_dict = dict(row)
-            tid = row_dict.get(target_pk)
-            targets_by_id[tid] = target_model._from_row_fast(row_dict)
+            row_data = row if isinstance(row, dict) else dict(row)
+            tid = row_data.get(target_pk)
+            targets_by_id[tid] = target_model._from_row_fast(row_data)
 
         # Assemble related objects for each instance
         for instance in instances:
@@ -1770,6 +2051,41 @@ class ExecuteResult[T: "Base"]:
         """Number of rows returned."""
         return self._result.rowcount
 
+    @property
+    def join_infos(self) -> list[JoinInfo]:
+        """JOIN metadata used to hydrate eager-loaded relationships."""
+        return self._join_infos
+
+    def __len__(self) -> int:
+        raise TypeError(
+            "len() is not supported on ExecuteResult. "
+            "Use .rowcount or await query.count() instead."
+        )
+
+    def __bool__(self) -> bool:
+        raise TypeError(
+            "bool() is not supported on ExecuteResult. "
+            "Use await query.exists() or .rowcount > 0 instead."
+        )
+
+    def __iter__(self) -> Any:
+        raise TypeError(
+            "Iterating ExecuteResult directly is not supported. "
+            "Use .all() or .scalars().all() instead."
+        )
+
+    def __contains__(self, _item: Any) -> bool:
+        raise TypeError(
+            "'in' checks are not supported on ExecuteResult. "
+            "Use await query.filter(...).exists() instead."
+        )
+
+    def __getitem__(self, _index: int) -> Any:
+        raise TypeError(
+            "Indexing ExecuteResult is not supported. "
+            "Use .first() or .all()[n] instead."
+        )
+
 
 class ScalarResult[T: "Base"]:
     """Result wrapper that converts rows to model instances."""
@@ -1812,8 +2128,8 @@ class ScalarResult[T: "Base"]:
         """Get exactly one result as a model instance."""
         if self._model is None:
             raise ValueError("Cannot convert to model: no model specified")
-        if len(self._result) != 1:
-            raise ValueError(f"Expected exactly 1 row, got {len(self._result)}")
+        if self._result.rowcount != 1:
+            raise ValueError(f"Expected exactly 1 row, got {self._result.rowcount}")
 
         if self._join_infos:
             rows = self._result.all()
@@ -1828,8 +2144,8 @@ class ScalarResult[T: "Base"]:
         """Get one result or None."""
         if self._model is None:
             return None
-        if len(self._result) > 1:
-            raise ValueError(f"Expected at most 1 row, got {len(self._result)}")
+        if self._result.rowcount > 1:
+            raise ValueError(f"Expected at most 1 row, got {self._result.rowcount}")
 
         if self._join_infos:
             rows = self._result.all()
@@ -1838,6 +2154,36 @@ class ScalarResult[T: "Base"]:
             return self._hydrate_with_joins(rows)[0]
 
         return self._result.to_model(self._model)
+
+    def __len__(self) -> int:
+        raise TypeError(
+            "len() is not supported on ScalarResult. "
+            "Use .rowcount or await query.count() instead."
+        )
+
+    def __bool__(self) -> bool:
+        raise TypeError(
+            "bool() is not supported on ScalarResult. "
+            "Use await query.exists() instead."
+        )
+
+    def __iter__(self) -> Any:
+        raise TypeError(
+            "Iterating ScalarResult directly is not supported. "
+            "Use .all() instead."
+        )
+
+    def __contains__(self, _item: Any) -> bool:
+        raise TypeError(
+            "'in' checks are not supported on ScalarResult. "
+            "Use await query.filter(...).exists() instead."
+        )
+
+    def __getitem__(self, _index: int) -> Any:
+        raise TypeError(
+            "Indexing ScalarResult is not supported. "
+            "Use .first(), .one(), or .all()[n] instead."
+        )
 
     def _hydrate_with_joins(self, rows: list[dict[str, Any]]) -> list[T]:
         """Hydrate model instances with joined relationship data."""

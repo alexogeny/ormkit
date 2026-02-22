@@ -1,6 +1,5 @@
 """Type stubs for the Rust extension module."""
 
-from collections.abc import Iterator
 from typing import Any
 
 class ConnectionPool:
@@ -64,8 +63,6 @@ class QueryResult:
         """Check if result is empty."""
         ...
 
-    def __len__(self) -> int: ...
-    def __iter__(self) -> Iterator[dict[str, Any]]: ...
 
 async def create_pool(
     url: str,

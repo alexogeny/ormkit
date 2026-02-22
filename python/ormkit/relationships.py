@@ -288,6 +288,54 @@ class ManyToManyCollection(list):
         self._rel_info = rel_info
         self._session = session
 
+    def append(self, _item: Any) -> None:
+        raise TypeError(
+            ".append() is not supported on M2M collections. "
+            "Use await collection.add(item) instead."
+        )
+
+    def extend(self, _items: Any) -> None:
+        raise TypeError(
+            ".extend() is not supported on M2M collections. "
+            "Use await collection.add(*items) instead."
+        )
+
+    def insert(self, _index: int, _item: Any) -> None:
+        raise TypeError(
+            ".insert() is not supported on M2M collections. "
+            "Use await collection.add(item) instead."
+        )
+
+    def pop(self, _index: int = -1) -> Any:
+        raise TypeError(
+            ".pop() is not supported on M2M collections. "
+            "Use await collection.remove(item) instead."
+        )
+
+    def __delitem__(self, _index: Any) -> None:
+        raise TypeError(
+            "del is not supported on M2M collections. "
+            "Use await collection.remove(item) instead."
+        )
+
+    def __setitem__(self, _index: Any, _value: Any) -> None:
+        raise TypeError(
+            "Item assignment is not supported on M2M collections. "
+            "Use await collection.add()/remove() instead."
+        )
+
+    def sort(self, **_kwargs: Any) -> None:
+        raise TypeError(
+            ".sort() is not supported on M2M collections. "
+            "Use query.order_by() when fetching instead."
+        )
+
+    def reverse(self) -> None:
+        raise TypeError(
+            ".reverse() is not supported on M2M collections. "
+            "Use query.order_by() when fetching instead."
+        )
+
     async def add(self, *items: Base) -> None:
         """Add items to the relationship (inserts into junction table).
 
@@ -307,27 +355,43 @@ class ManyToManyCollection(list):
 
         owner_id = getattr(self._owner, owner_pk_col)
         dialect = self._session._dialect
-
+        item_by_target_id: dict[Any, Base] = {}
         for item in items:
             target_id = getattr(item, target_pk_col)
+            item_by_target_id[target_id] = item
 
-            # Use INSERT OR IGNORE / ON CONFLICT DO NOTHING for idempotency
-            if dialect == "postgresql":
-                sql = (
-                    f"INSERT INTO {junction_table} ({junction_local}, {junction_remote}) "
-                    f"VALUES ($1, $2) ON CONFLICT DO NOTHING"
-                )
-            else:
-                sql = (
-                    f"INSERT OR IGNORE INTO {junction_table} "
-                    f"({junction_local}, {junction_remote}) VALUES (?, ?)"
-                )
+        if not item_by_target_id:
+            return
 
-            await self._session._pool.execute_statement_py(sql, [owner_id, target_id])
+        params: list[Any] = []
+        values_sql: list[str] = []
 
-            # Update local list if not already present
-            if item not in self:
-                self.append(item)
+        if dialect == "postgresql":
+            param_idx = 1
+            for target_id in item_by_target_id:
+                values_sql.append(f"(${param_idx}, ${param_idx + 1})")
+                params.extend([owner_id, target_id])
+                param_idx += 2
+            sql = (
+                f"INSERT INTO {junction_table} ({junction_local}, {junction_remote}) "
+                f"VALUES {', '.join(values_sql)} ON CONFLICT DO NOTHING"
+            )
+        else:
+            for target_id in item_by_target_id:
+                values_sql.append("(?, ?)")
+                params.extend([owner_id, target_id])
+            sql = (
+                f"INSERT OR IGNORE INTO {junction_table} ({junction_local}, {junction_remote}) "
+                f"VALUES {', '.join(values_sql)}"
+            )
+
+        await self._session._pool.execute_statement_py(sql, params)
+
+        existing_ids = {getattr(item, target_pk_col) for item in self}
+        for target_id, item in item_by_target_id.items():
+            if target_id not in existing_ids:
+                list.append(self, item)
+                existing_ids.add(target_id)
 
     async def remove(self, *items: Base) -> None:
         """Remove items from the relationship (deletes from junction table).
@@ -348,28 +412,31 @@ class ManyToManyCollection(list):
 
         owner_id = getattr(self._owner, owner_pk_col)
         dialect = self._session._dialect
+        target_ids = list({getattr(item, target_pk_col) for item in items})
+        if not target_ids:
+            return
 
-        for item in items:
-            target_id = getattr(item, target_pk_col)
+        if dialect == "postgresql":
+            placeholders = ", ".join(f"${i + 2}" for i in range(len(target_ids)))
+            sql = (
+                f"DELETE FROM {junction_table} "
+                f"WHERE {junction_local} = $1 AND {junction_remote} IN ({placeholders})"
+            )
+            params = [owner_id, *target_ids]
+        else:
+            placeholders = ", ".join("?" for _ in target_ids)
+            sql = (
+                f"DELETE FROM {junction_table} "
+                f"WHERE {junction_local} = ? AND {junction_remote} IN ({placeholders})"
+            )
+            params = [owner_id, *target_ids]
 
-            if dialect == "postgresql":
-                sql = (
-                    f"DELETE FROM {junction_table} "
-                    f"WHERE {junction_local} = $1 AND {junction_remote} = $2"
-                )
-            else:
-                sql = (
-                    f"DELETE FROM {junction_table} "
-                    f"WHERE {junction_local} = ? AND {junction_remote} = ?"
-                )
+        await self._session._pool.execute_statement_py(sql, params)
 
-            await self._session._pool.execute_statement_py(sql, [owner_id, target_id])
-
-            # Update local list
-            try:
-                list.remove(self, item)
-            except ValueError:
-                pass  # Item wasn't in the list
+        target_id_set = set(target_ids)
+        remaining = [item for item in self if getattr(item, target_pk_col) not in target_id_set]
+        list.clear(self)
+        list.extend(self, remaining)
 
     async def clear(self) -> None:
         """Remove all items from the relationship."""

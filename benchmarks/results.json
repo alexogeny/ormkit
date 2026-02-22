@@ -1,128 +1,53 @@
-[
-  {
-    "name": "single_insert_100",
-    "library": "foreignkey",
-    "operation": "Single Insert",
-    "rows": 100,
-    "time_ms": 4.045106001285603,
-    "rows_per_sec": 24721.231030340936,
-    "iterations": 100
-  },
-  {
-    "name": "bulk_insert_100",
-    "library": "foreignkey",
-    "operation": "Bulk Insert",
-    "rows": 100,
-    "time_ms": 0.203192001208663,
-    "rows_per_sec": 492145.3571260784,
-    "iterations": 1
-  },
-  {
-    "name": "bulk_insert_1000",
-    "library": "foreignkey",
-    "operation": "Bulk Insert",
-    "rows": 1000,
-    "time_ms": 0.9355159963888582,
-    "rows_per_sec": 1068928.8091919897,
-    "iterations": 1
-  },
-  {
-    "name": "bulk_insert_10000",
-    "library": "foreignkey",
-    "operation": "Bulk Insert",
-    "rows": 10000,
-    "time_ms": 7.7983369992580265,
-    "rows_per_sec": 1282324.680371142,
-    "iterations": 1
-  },
-  {
-    "name": "select_all",
-    "library": "foreignkey",
-    "operation": "Select All",
-    "rows": 11100,
-    "time_ms": 7.517303998611169,
-    "rows_per_sec": 1476593.204432166,
-    "iterations": 1
-  },
-  {
-    "name": "select_by_id",
-    "library": "foreignkey",
-    "operation": "Select by ID",
-    "rows": 1,
-    "time_ms": 3.119598000921542,
-    "rows_per_sec": 32055.41225839342,
-    "iterations": 100
-  },
-  {
-    "name": "select_filter",
-    "library": "foreignkey",
-    "operation": "Select with Filter",
-    "rows": 6510,
-    "time_ms": 4.633315998944454,
-    "rows_per_sec": 1405041.2278124534,
-    "iterations": 1
-  },
-  {
-    "name": "single_insert_100",
-    "library": "aiosqlite",
-    "operation": "Single Insert",
-    "rows": 100,
-    "time_ms": 3.4092540008714423,
-    "rows_per_sec": 29331.930086300086,
-    "iterations": 100
-  },
-  {
-    "name": "bulk_insert_100",
-    "library": "aiosqlite",
-    "operation": "Bulk Insert",
-    "rows": 100,
-    "time_ms": 0.3088689991272986,
-    "rows_per_sec": 323761.8546456505,
-    "iterations": 1
-  },
-  {
-    "name": "bulk_insert_1000",
-    "library": "aiosqlite",
-    "operation": "Bulk Insert",
-    "rows": 1000,
-    "time_ms": 1.9874450008501299,
-    "rows_per_sec": 503158.57775800076,
-    "iterations": 1
-  },
-  {
-    "name": "bulk_insert_10000",
-    "library": "aiosqlite",
-    "operation": "Bulk Insert",
-    "rows": 10000,
-    "time_ms": 14.721461997396545,
-    "rows_per_sec": 679280.3596387693,
-    "iterations": 1
-  },
-  {
-    "name": "select_all",
-    "library": "aiosqlite",
-    "operation": "Select All",
-    "rows": 11100,
-    "time_ms": 7.371976997092133,
-    "rows_per_sec": 1505701.9310258809,
-    "iterations": 1
-  },
-  {
-    "name": "select_by_id",
-    "library": "aiosqlite",
-    "operation": "Select by ID",
-    "rows": 1,
-    "time_ms": 4.744464000395965,
-    "rows_per_sec": 21077.19649504226,
-    "iterations": 100
-  },
-  {
-    "name": "select_filter",
-    "library": "aiosqlite",
-    "operation": "Select with Filter",
-    "rows": 6510,
-    "time_ms": 4.841737001697766,
-    "rows_per_sec": 1344558.780808882,
-    "iterations": 1
-  }
-]
+============================================================
+OrmKit ORM Benchmark Suite
+============================================================
+
+[bold cyan]SQLite Benchmarks[/bold cyan]
+
+[dim]Running best of 3 for each benchmark[/dim]
+
+
+[bold magenta]━━━ Run 1/3 ━━━[/bold magenta]
+
+[yellow]Running with 100 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+[yellow]Running with 1,000 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+[yellow]Running with 10,000 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+
+[bold magenta]━━━ Run 2/3 ━━━[/bold magenta]
+
+[yellow]Running with 100 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+[yellow]Running with 1,000 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+[yellow]Running with 10,000 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+
+[bold magenta]━━━ Run 3/3 ━━━[/bold magenta]
+
+[yellow]Running with 100 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+[yellow]Running with 1,000 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+[yellow]Running with 10,000 rows...[/yellow]
+  • OrmKit...
+  • aiosqlite...
+
+[bold cyan]PostgreSQL Benchmarks[/bold cyan]
+
+[dim]Running best of 3 for each benchmark[/dim]
+
+
+[bold magenta]━━━ Run 1/3 ━━━[/bold magenta]
+
+[yellow]Seeding 100 rows...[/yellow]

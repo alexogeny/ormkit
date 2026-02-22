@@ -143,6 +143,7 @@ class ModelMeta(type):
         cls.__relationships__ = relationships  # type: ignore[attr-defined]
         cls.__primary_key__ = None  # type: ignore[attr-defined]
         cls.__hints__ = hints  # type: ignore[attr-defined]
+        cls.__relationships_resolved__ = False  # type: ignore[attr-defined]
 
         # Find primary key
         for col_name, col_info in columns.items():
@@ -158,6 +159,18 @@ class ModelMeta(type):
 
     def _resolve_relationships(cls) -> None:
         """Resolve all relationships after all models are defined."""
+        unresolved = [
+            (rel_name, rel_info)
+            for rel_name, rel_info in cls.__relationships__.items()
+            if rel_info._target_model is None
+        ]
+        if not unresolved:
+            cls.__relationships_resolved__ = True  # type: ignore[attr-defined]
+            return
+
+        if getattr(cls, "__relationships_resolved__", False):
+            return
+
         # Re-resolve hints now that all models may be defined
         try:
             import sys
@@ -178,9 +191,12 @@ class ModelMeta(type):
         except Exception:
             hints = {}
 
-        for rel_name, rel_info in cls.__relationships__.items():
-            if rel_info._target_model is None:
-                rel_info.resolve(cls, rel_name, hints.get(rel_name))  # type: ignore[arg-type]
+        for rel_name, rel_info in unresolved:
+            rel_info.resolve(cls, rel_name, hints.get(rel_name))  # type: ignore[arg-type]
+
+        cls.__relationships_resolved__ = all(
+            rel_info._target_model is not None for rel_info in cls.__relationships__.values()
+        )  # type: ignore[attr-defined]
 
 
 def _extract_mapped_type(hint: Any) -> type | None:
@@ -213,6 +229,7 @@ class Base(metaclass=ModelMeta):
     __relationships__: ClassVar[dict[str, RelationshipInfo]]
     __primary_key__: ClassVar[str | None]
     __hints__: ClassVar[dict[str, Any]]
+    __relationships_resolved__: ClassVar[bool]
 
     # Instance attributes for relationship state
     _loaded_relationships: dict[str, Any]
@@ -220,38 +237,28 @@ class Base(metaclass=ModelMeta):
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize a model instance with the given column values."""
-        from ormkit.fields import ColumnInfo
-
         # Initialize relationship storage
         object.__setattr__(self, "_loaded_relationships", {})
         object.__setattr__(self, "_session", None)
 
+        provided_keys = set(kwargs)
         for key, value in kwargs.items():
             if key in self.__columns__ or key in self.__relationships__:
                 setattr(self, key, value)
             else:
                 raise TypeError(f"Unknown column or relationship: {key}")
 
-        # Set defaults for missing columns
-        # We need to check if the attribute was actually set (not just inherited ColumnInfo)
+        # Set defaults only for columns that were not provided.
         for col_name, col_info in self.__columns__.items():
-            # Check if this is an instance attribute (not just class-level ColumnInfo)
-            try:
-                val = object.__getattribute__(self, col_name)
-                # If we got here and it's a ColumnInfo, it's the class attribute
-                if isinstance(val, ColumnInfo):
-                    raise AttributeError("Class attribute")
-            except AttributeError:
-                # Attribute not set on instance - set default
-                if col_info.default is not None:
-                    if callable(col_info.default):
-                        setattr(self, col_name, col_info.default())
-                    else:
-                        setattr(self, col_name, col_info.default)
-                elif col_info.nullable:
-                    setattr(self, col_name, None)
-                # For non-nullable columns without defaults (like autoincrement PKs),
-                # we don't set anything - they'll be filled by the database
+            if col_name in provided_keys:
+                continue
+            if col_info.default is not None:
+                default = col_info.default() if callable(col_info.default) else col_info.default
+                setattr(self, col_name, default)
+            elif col_info.nullable:
+                setattr(self, col_name, None)
+            # For non-nullable columns without defaults (like autoincrement PKs),
+            # we don't set anything - they'll be filled by the database
 
     def __repr__(self) -> str:
         pk = self.__primary_key__
@@ -315,9 +322,13 @@ class Base(metaclass=ModelMeta):
                         "was created via session.insert()."
                     )
 
-            # For lazy loading, return placeholder
-            # Real lazy loading requires async which we can't do in __getattr__
-            return [] if rel_info.uselist else None
+            # Async lazy loading is not possible in __getattr__, so raise
+            # instead of silently returning empty results
+            raise AttributeError(
+                f"Relationship '{name}' is not loaded. "
+                "Use eager loading with selectinload() or joinedload(), "
+                "or set lazy='noload' to explicitly get empty defaults."
+            )
 
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 

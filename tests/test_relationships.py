@@ -185,13 +185,14 @@ class TestNoLoad:
 class TestRelationshipAccess:
     """Tests for accessing relationships on model instances."""
 
-    async def test_unloaded_relationship_returns_empty(self, session):
-        """Accessing unloaded relationship should return empty list/None."""
+    async def test_unloaded_relationship_raises(self, session):
+        """Accessing unloaded relationship should raise AttributeError."""
         users = await session.query(RelUser).all()
 
-        # Without eager loading, posts should be empty list
+        # Without eager loading, accessing posts should raise
         for user in users:
-            assert user.posts == []
+            with pytest.raises(AttributeError, match="not loaded"):
+                user.posts
 
     async def test_loaded_relationship_persists(self, session):
         """Loaded relationships should be accessible after loading."""
